@@ -1,0 +1,20 @@
+{
+  "name": "nvidia-fan-control-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build": "vite build",
+    "test": "playwright test"
+  },
+  "dependencies": { "svelte": "5.57.3" },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "svelte-check": "4.7.7",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  }
+}

@@ -40,11 +40,11 @@ fi
 
 "$engine" run --rm --read-only --env NVIDIA_VISIBLE_DEVICES=void "$image" --help
 status=0
-output=$("$engine" run --rm --read-only --env NVIDIA_VISIBLE_DEVICES=void "$image" 2>&1) || status=$?
+output=$("$engine" run --rm --read-only --env NVIDIA_VISIBLE_DEVICES=void "$image" --diagnose 2>&1) || status=$?
 printf '%s\n' "$output"
 if [ "$status" -ne 1 ]; then
-    echo "Expected a diagnostic failure (exit 1) without host NVML; got $status" >&2
+    echo "Expected --diagnose to fail (exit 1) without host NVML; got $status" >&2
     exit 1
 fi
 printf '%s\n' "$output" | grep -q 'initialize NVML: ERROR_LIBRARY_NOT_FOUND'
-echo 'No-GPU image checks passed. Target-host NVML telemetry still requires validation.'
+echo 'No-GPU image checks passed. Target-host NVML control/reset still requires validation.'

@@ -24,7 +24,31 @@ jobs:
       run: docker build --platform linux/amd64 --tag nvidia-fan-control:local .
     - name: Check runtime contents, size and no-GPU startup
       run: sh scripts/check-image.sh nvidia-fan-control:local
+    - name: Mock service lifecycle in the runtime container
+      run: python3 scripts/smoke-service.py nvidia-fan-control:local
     - name: Validate GPU Compose example
       env:
         NVIDIA_GPU_UUID: GPU-ci-placeholder
+        FAN_CONTROL_TOKEN_FILE: /tmp/ci-token-placeholder
       run: docker compose config --quiet
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.27.3'
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24.22.2'
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - run: npm --prefix web ci
+    - run: npm --prefix web run check
+    - run: npm --prefix web run build
+    - name: Install browser
+      working-directory: web
+      run: npx playwright install --with-deps chromium
+    - name: Browser tests against Go mock service
+      run: npm --prefix web test

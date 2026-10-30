@@ -27,3 +27,9 @@ go.work.sum
 # Native build output and local persistent configuration
 /nvidia_fan_control
 /data/
+/bin/
+/web/node_modules/
+/web/test-results/
+/web/playwright-report/
+/internal/web/dist/
+/secrets/

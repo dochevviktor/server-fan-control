@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -150,10 +151,35 @@ func TestCLIRejectsUnknownArgumentsBeforeNVML(t *testing.T) {
 	}
 }
 
-func TestCLIUsesExplicitConfigPath(t *testing.T) {
-	missingConfig := filepath.Join(t.TempDir(), "missing.json")
-	err := runCLI([]string{"--config", missingConfig}, io.Discard, io.Discard, nil)
-	if err == nil || !strings.Contains(err.Error(), missingConfig) {
-		t.Fatalf("expected missing configuration error for %q, got %v", missingConfig, err)
+func TestCLIRejectsUnsafeAuthenticationBypass(t *testing.T) {
+	for _, args := range [][]string{{"--dev-no-auth"}, {"--mock", "--dev-no-auth", "--listen", "0.0.0.0:8080"}} {
+		if err := runCLI(args, io.Discard, io.Discard, nil); err == nil || !strings.Contains(err.Error(), "loopback") {
+			t.Fatalf("unsafe bypass accepted: %v", err)
+		}
+	}
+}
+
+func TestStartupSecretFailureStillRestoresOwnedMockFans(t *testing.T) {
+	dir := t.TempDir()
+	journal := filepath.Join(dir, "ownership.mock.json")
+	if err := os.WriteFile(journal, []byte(`{"schema_version":1,"fans":{"GPU-MOCK-001":[0,1]}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := runCLI([]string{"--mock", "--config", filepath.Join(dir, "config.json"), "--admin-token-file", filepath.Join(dir, "missing-token")}, io.Discard, io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "admin token") {
+		t.Fatalf("expected startup error, got %v", err)
+	}
+	data, readErr := os.ReadFile(journal)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	var document struct {
+		Fans map[string][]int `json:"fans"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Fans) != 0 {
+		t.Fatalf("startup error left owned fans: %s", data)
 	}
 }
