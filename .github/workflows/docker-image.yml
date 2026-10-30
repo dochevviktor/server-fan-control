@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: Docker Image CI and Publish
 
 on:
   push:
@@ -12,8 +12,29 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
     - uses: actions/checkout@v4
+    - name: Read package version
+      id: version
+      shell: bash
+      run: |
+        python3 - <<'PYTHON'
+        import json
+        import os
+        import re
+
+        with open("web/package.json", encoding="utf-8") as source:
+            version = json.load(source).get("version")
+        # SemVer without build metadata: '+' is not allowed in Docker tags.
+        pattern = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+        if not isinstance(version, str) or len(version) > 128 or not re.fullmatch(pattern, version):
+            raise SystemExit("::error::web/package.json version must be a Docker-compatible semantic version (no '+' metadata, at most 128 characters).")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"version={version}\n")
+        print(f"Using package version {version} (Git and Docker tag {version}).")
+        PYTHON
     - name: Build CGO binary without NVIDIA tooling
       run: docker build --platform linux/amd64 --target build --tag nvidia-fan-control:build .
     - name: Test and vet in the matching Go builder
@@ -21,7 +42,14 @@ jobs:
         docker run --rm nvidia-fan-control:build go test -race ./...
         docker run --rm nvidia-fan-control:build go vet ./...
     - name: Build runtime image
-      run: docker build --platform linux/amd64 --tag nvidia-fan-control:local .
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      run: |
+        docker build --platform linux/amd64 --tag nvidia-fan-control:local \
+          --label "org.opencontainers.image.version=$VERSION" \
+          --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+          --label "org.opencontainers.image.source=$SOURCE_URL" .
     - name: Check runtime contents, size and no-GPU startup
       run: sh scripts/check-image.sh nvidia-fan-control:local
     - name: Mock service lifecycle in the runtime container
@@ -31,6 +59,19 @@ jobs:
         NVIDIA_GPU_UUID: GPU-ci-placeholder
         FAN_CONTROL_TOKEN_FILE: /tmp/ci-token-placeholder
       run: docker compose config --quiet
+    - name: Export the tested runtime image
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: docker save nvidia-fan-control:local | gzip > "$RUNNER_TEMP/runtime-image.tar.gz"
+    - name: Upload tested image for publishing
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: runtime-image-${{ github.sha }}
+        path: ${{ runner.temp }}/runtime-image.tar.gz
+        compression-level: 0
+        retention-days: 7
+        if-no-files-found: error
+        overwrite: true
 
   browser:
     runs-on: ubuntu-latest
@@ -52,3 +93,69 @@ jobs:
       run: npx playwright install --with-deps chromium
     - name: Browser tests against Go mock service
       run: npm --prefix web test
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, browser]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    concurrency:
+      group: ghcr-publish-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+    - name: Check out the tested commit
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        fetch-depth: 0
+    - name: Download the tested runtime image
+      uses: actions/download-artifact@v4
+      with:
+        name: runtime-image-${{ github.sha }}
+        path: ${{ runner.temp }}
+    - name: Load and tag the tested image
+      shell: bash
+      run: |
+        gzip --decompress --stdout "$RUNNER_TEMP/runtime-image.tar.gz" | docker load
+        image="${REGISTRY}/${IMAGE_NAME,,}"
+        docker tag nvidia-fan-control:local "$image:$VERSION"
+        docker tag nvidia-fan-control:local "$image:latest"
+    - name: Create Git tag without moving an existing release
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch --tags --force origin
+        if git show-ref --tags --verify --quiet "refs/tags/$VERSION"; then
+          tagged_commit="$(git rev-parse "refs/tags/$VERSION^{commit}")"
+          if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+            echo "::error::Git tag $VERSION already points to $tagged_commit, not $GITHUB_SHA. Bump web/package.json and its lockfile before publishing another commit."
+            exit 1
+          fi
+          echo "Git tag $VERSION already points to this commit."
+        else
+          git tag --annotate "$VERSION" "$GITHUB_SHA" --message "Release $VERSION"
+          git push origin "refs/tags/$VERSION"
+        fi
+    - name: Log in to GitHub Container Registry
+      env:
+        GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GHCR_USER: ${{ github.actor }}
+      run: printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+    - name: Publish version and current-main latest
+      shell: bash
+      run: |
+        image="${REGISTRY}/${IMAGE_NAME,,}"
+        docker push "$image:$VERSION"
+        main_commit="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+        if [[ "$main_commit" == "$GITHUB_SHA" ]]; then
+          docker push "$image:latest"
+        else
+          echo "Main has advanced to $main_commit; leaving latest unchanged for this older commit."
+        fi

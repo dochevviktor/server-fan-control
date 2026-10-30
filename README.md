@@ -134,12 +134,20 @@ make e2e                  # build, then browser tests against real Go mock mode
 
 Install Playwright Chromium first with `cd web && npx playwright install chromium`, or set `PLAYWRIGHT_CHROME_PATH` to a compatible installed Chrome executable. Tests cover login, editing, apply/reset, conflict handling, persistence failures and responsive layout. `make build` always produces frontend assets before compiling the `go:embed` package. Generated assets, node_modules and local binaries are ignored by Git.
 
+## Image publishing
+
+[Docker Image CI and Publish](.github/workflows/docker-image.yml) runs the Go/container and browser checks on pull requests and pushes to `main`. Pull requests never publish. After both jobs pass on `main`, the publish job loads the exact tested image artifact and publishes Linux amd64 images to `ghcr.io/dochevviktor/nvidia-fan-control:<version>` and `:latest` using `GITHUB_TOKEN`. The version comes from `web/package.json` (currently `0.1.0`); `latest` is updated only if the tested commit is still the head of `main`, so an older rerun cannot roll it back.
+
+The workflow creates a matching annotated Git tag, such as `0.1.0`. An existing tag must point to the same commit; otherwise publication fails before pushing images. Bump the version for each new release, updating both package files with `npm --prefix web version patch --no-git-tag-version` (or `minor`/`major`) and commit them. Rerunning the same tagged commit is allowed. Image artifacts are retained for seven days; after expiry, rerun all jobs to rebuild and validate the image before publishing. Versions must fit Docker's tag syntax; SemVer `+build` metadata is rejected.
+
+Only the publish job has `contents: write` and `packages: write`; the other jobs keep read-only repository permissions. Repository/package policies must allow the workflow token to create tags and publish the package. No personal access token is required for normal repository-owned GHCR publishing. Make the GHCR package public if the NAS should pull anonymously, or configure registry credentials for a private package. The workflow does not deploy the application.
+
 ## TrueNAS and target-host acceptance
 
 Use Docker-based TrueNAS Apps (24.10 or later). **No TrueNAS release or real GPU control/reset behavior has been validated in this workspace.** Record the exact host release, GPU model/UUID, driver, tested duty floor and critical temperature when accepting a deployment.
 
 1. Enable NVIDIA support through **Apps > Installed > Configuration > Settings > Install NVIDIA Drivers**, following [TrueNAS initial setup](https://apps.truenas.com/getting-started/initial-setup/). Do not modify the appliance OS from the container.
-2. Build/publish an amd64 image in development/CI and use a tag/digest actually available to the NAS. This repository's CI builds and tests; it does not automatically publish or deploy.
+2. Build/publish an amd64 image in development/CI and use a tag/digest actually available to the NAS. Pushes to `main` publish to GHCR after CI passes; deployment to the NAS remains manual.
 3. Create a persistent dataset/directory and a separate admin-secret file with appropriate ownership. Mount the entire configuration directory writable.
 4. Use **Apps > Discover Apps > Install via YAML**, following [Installing Custom Apps](https://apps.truenas.com/managing-apps/installing-custom-apps/). Paste Compose and replace image, GPU UUID, data and secret interpolation expressions with actual values. Configure the management-network HTTPS proxy/public origin explicitly; loopback host publication alone does not provide remote browser access.
 5. First run the read-only diagnostic and compare telemetry. Under supervision, verify each selected physical fan accepts a conservative target, Return to automatic resets it, and SIGTERM/restart restores ownership correctly. Confirm no other software owns the same fans. Validate thermal response and failure scenarios before unattended operation.
