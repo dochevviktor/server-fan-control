@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Exercise the packaged service, using only mock devices and temporary data."""
 import http.cookiejar
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
@@ -80,7 +82,17 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
     def stop_and_remove():
         command('stop', '--time', '25', name)
         assert command('inspect', '--format', '{{.State.ExitCode}}', name) == '0', 'shutdown failed'
-        journal = json.loads((data / 'ownership.mock.json').read_text())
+        # Rootful Docker writes root-owned 0600 files in the bind mount. Read
+        # the stopped container through the engine instead of the host user;
+        # consume the archive in memory without extracting files or permissions.
+        archive = subprocess.check_output([
+            engine, 'cp', f'{name}:/data/ownership.mock.json', '-',
+        ])
+        with tarfile.open(fileobj=io.BytesIO(archive)) as copied:
+            member = copied.getmember('ownership.mock.json')
+            assert member.isfile(), 'ownership journal is not a regular file'
+            with copied.extractfile(member) as journal_file:
+                journal = json.load(journal_file)
         assert journal['fans'] == {}, 'SIGTERM did not clear restored ownership'
         command('rm', name)
 
