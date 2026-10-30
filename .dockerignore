@@ -1,0 +1,10 @@
+# Only the phase-1 build inputs enter the context. This excludes Git/IDE data,
+# live config.json, data/, secrets/.env, binaries, node_modules and test output.
+# Extend deliberately when later phases introduce packages or frontend assets.
+**
+!Dockerfile
+!.dockerignore
+!go.mod
+!go.sum
+!*.go
+!LICENSE

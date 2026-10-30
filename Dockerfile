@@ -1,52 +1,25 @@
-# Use a base image with a newer GLIBC version (Debian 11+ or Ubuntu 22.04)
-FROM nvidia/cuda:12.2.2-devel-ubuntu22.04 AS build
+# syntax=docker/dockerfile:1
 
-# Set working directory
-WORKDIR /app
+# Keep the builder and runtime on the same Debian generation for glibc.
+# Official image digests resolved 2026-10-30; refresh both with security updates.
+FROM docker.io/library/golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS build
 
-# Install necessary dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    pkg-config \
-    git \
-    wget \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+ENV CGO_ENABLED=1
 
-# Install Go
-RUN wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.21.6.linux-amd64.tar.gz && \
-    rm go1.21.6.linux-amd64.tar.gz
+COPY go.mod go.sum ./
+RUN go mod download
+COPY *.go ./
+RUN go build -trimpath -ldflags="-s -w" -o /out/nvidia-fan-control .
 
-ENV PATH="/usr/local/go/bin:${PATH}"
+FROM docker.io/library/debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS runtime
 
-# Copy source code
-COPY . .
-
-# Build the application
-RUN go build -o nvidia_fan_control
-
-# Use a minimal runtime image
-FROM nvidia/cuda:12.2.2-runtime-ubuntu22.04
-
-WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libnvidia-compute-525 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the built application from the build stage
-COPY --from=build /app/nvidia_fan_control .
-
-# Copy the config file from the source
-COPY --from=build /app/config.json .
-
-# Ensure the NVIDIA libraries are available
-ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
-
-# Explicitly set the user to root (UID 0)
-USER root
-
-# Run the application
-CMD ["./nvidia_fan_control"]
+# The host NVIDIA Container Toolkit supplies NVML and the selected device nodes.
+ENV NVIDIA_DRIVER_CAPABILITIES=utility
+COPY --from=build /out/nvidia-fan-control /usr/local/bin/nvidia-fan-control
+COPY LICENSE /usr/share/doc/nvidia-fan-control/LICENSE
+WORKDIR /data
+USER 0:0
+ENTRYPOINT ["/usr/local/bin/nvidia-fan-control"]
+# Phase 1 is a read-only diagnostic checkpoint; controller hardening is phase 2.
+CMD ["--diagnose"]

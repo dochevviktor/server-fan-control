@@ -23,3 +23,7 @@ go.work.sum
 
 # env file
 .env
+
+# Native build output and local persistent configuration
+/nvidia_fan_control
+/data/

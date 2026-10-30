@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"log"
 	"os"
 	"time"
@@ -59,12 +61,16 @@ func main() {
 	// Set logging to stdout
 	log.SetOutput(os.Stdout)
 
-	// Load configuration
-	config, err := loadConfig("config.json")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr, nvml.New()); err != nil && !errors.Is(err, flag.ErrHelp) {
+		log.SetOutput(os.Stderr)
+		log.Print(err)
+		os.Exit(1)
 	}
+}
 
+// The legacy controller is retained for native deployments. Its validation,
+// fan restoration and shutdown behavior will be hardened in phase 2.
+func runController(config Config) {
 	// Initialize NVML
 	ret := nvml.Init()
 	if ret != nvml.SUCCESS {

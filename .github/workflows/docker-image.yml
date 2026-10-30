@@ -6,13 +6,25 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag nvidia-fan-control:$(date +%s)
+    - name: Build CGO binary without NVIDIA tooling
+      run: docker build --platform linux/amd64 --target build --tag nvidia-fan-control:build .
+    - name: Test and vet in the matching Go builder
+      run: |
+        docker run --rm nvidia-fan-control:build go test -race ./...
+        docker run --rm nvidia-fan-control:build go vet ./...
+    - name: Build runtime image
+      run: docker build --platform linux/amd64 --tag nvidia-fan-control:local .
+    - name: Check runtime contents, size and no-GPU startup
+      run: sh scripts/check-image.sh nvidia-fan-control:local
+    - name: Validate GPU Compose example
+      env:
+        NVIDIA_GPU_UUID: GPU-ci-placeholder
+      run: docker compose config --quiet

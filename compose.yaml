@@ -1,0 +1,25 @@
+services:
+  fan-control:
+    image: ${FAN_CONTROL_IMAGE:-nvidia-fan-control:local}
+    platform: linux/amd64
+    user: "0:0"
+    read_only: true
+    # Phase 1 is a one-shot telemetry check, not an unattended controller.
+    restart: "no"
+    command: ["--diagnose", "--config", "/data/config.json"]
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${NVIDIA_GPU_UUID:?Set NVIDIA_GPU_UUID to the target GPU UUID}"]
+              capabilities: [gpu]
+    volumes:
+      - type: bind
+        source: ${FAN_CONTROL_CONFIG_DIR:-./data}
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
