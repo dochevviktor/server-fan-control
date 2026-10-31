@@ -179,6 +179,12 @@ func parseDuties(text string) ([]int, error) {
 		if err != nil {
 			return nil, fmt.Errorf("profile read byte %d: %w", i+1, err)
 		}
+		// Firmware 1.64 SetSmartFan validates every byte against 100 before
+		// updating any channel. An unknown value cannot be preserved by sending
+		// it back: the entire command would be rejected (completion code 0xcc).
+		if n > 100 {
+			return nil, fmt.Errorf("profile read byte %d is outside the verified 0..100 encoding: %d", i+1, n)
+		}
 		result[i] = int(n)
 	}
 	return result, nil

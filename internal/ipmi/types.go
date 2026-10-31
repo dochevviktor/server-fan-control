@@ -25,8 +25,9 @@ type Fan struct {
 type Reading struct {
 	Identity Identity `json:"identity"`
 	Fans     []Fan    `json:"fans"`
-	// Duties contains the eight raw profile bytes, in payload order. Mapping a
-	// slot to a physical header and the zero/percentage encoding needs host validation.
+	// Duties contains the eight mode/target bytes, in payload order. Firmware
+	// 1.64 returns zero for automatic and 1..100 for manual percent. This reads
+	// software state, not the hardware PWM register or actual rotation.
 	Duties      []int     `json:"duties"`
 	DutyError   string    `json:"duty_error,omitempty"`
 	CollectedAt time.Time `json:"collected_at"`

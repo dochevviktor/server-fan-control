@@ -6,7 +6,53 @@ Naming updated 31 October 2026: this fork of [ZanMax/nvidia-fan-control](https:/
 
 ## Phase-3 implementation update — 31 October 2026
 
-Optional local IPMI monitoring and the `asrock-e3c246d2i` actuator are implemented with an independent worker, authenticated dashboard/API, fixed bounded subprocesses, read-modify-write/readback, explicit host verification settings, and ownership recovery. See the README's “Optional local IPMI and ASRock system fans” section for the deployment and acceptance contract. The owner's support commands are `raw 0x3a 0x02` and `raw 0x3a 0x01 00 00 35 00 00 00 00 00`; bare `35` is decimal. The board has three physical fan headers, while the OEM vector has eight bytes. Slot/header mapping, zero-as-automatic, percentage scaling, safe minimum and actual firmware response still require supervised target-host verification. No real IPMI write or TrueNAS deployment has been performed in this workspace. HDD-temperature control remains phase 4.
+Optional local IPMI monitoring and the `asrock-e3c246d2i` actuator are implemented with an independent worker, authenticated dashboard/API, fixed bounded subprocesses, read-modify-write/readback, explicit host verification settings, and ownership recovery. See the README's “Optional local IPMI and ASRock system fans” section for the deployment and acceptance contract. The owner's support commands are `raw 0x3a 0x02` and `raw 0x3a 0x01 00 00 35 00 00 00 00 00`; bare `35` is decimal. The board has three physical fan headers, while the OEM vector has eight bytes. Static analysis of the supplied BMC 1.64 image now confirms eight-byte requests, zero-as-automatic and percentage scaling; see the firmware analysis below. Physical header mapping, safe minimum and actual host behavior still require supervised target-host verification. No real IPMI write or TrueNAS deployment has been performed in this workspace. HDD-temperature control remains phase 4.
+
+## Firmware analysis update — BMC 01.64.00, 31 October 2026
+
+The owner supplied `/home/agentic/Downloads/E3C246D2I(01.64.00)BMC.zip`. It contains the 32 MiB image `E3C246D2I_1.64.00.ima`. Analysis used CramFS extraction, ARM ELF symbols/relocations, disassembly and SDR parsing. No firmware binary was executed, no image was flashed and no BMC command was sent. This establishes the protocol in the supplied image; it does not establish which firmware is currently installed on the NAS.
+
+Reproducible provenance and addresses are recorded in [the firmware evidence JSON](docs/firmware/e3c246d2i-1.64-evidence.json). Archive SHA-256: `d9b9e1948e25b1745f6f8711ef0784c4db7709ce0a537ded1f8a243942e25d14`. Image SHA-256: `e574878294e74043aa02bf3cbdc458898df3a34d20a1c0dc35b4d63196e4e5bd`. The root filesystem starts at image offset `0x260000`; the web filesystem starts at `0x1660000`. Extracted files and annotated disassembly are retained locally in `/tmp/e3c246d2i-bmc-01.64-analysis`.
+
+The following addresses are ELF virtual addresses, not flash-image offsets:
+
+| Finding | Binary evidence |
+| --- | --- |
+| NetFn `0x3a`, command `0x01`, exactly eight request bytes | `libipmipdkcmds.so.2.9.0`: `AsRockRack_MsgHndlrTbl` at `0xb408`, relocation at `0xb414`, command table at `0x148b8`, `PDK_PreProcessCmd` at `0x730c`. |
+| NetFn `0x3a`, command `0x02`, no request payload | Same dispatch table; entry points to `GetSmartFan` at `0x3a8c`. |
+| Every SET byte must be 0–100 | `SetSmartFan` at `0x69b0` checks all eight bytes before updating state; a value above 100 returns completion `0xcc`. Wrong request length returns `0xc7` in dispatch. The table requires privilege level 4. |
+| Zero selects automatic for that channel; 1–100 selects manual duty | `SetSmartFan` stores per-channel manual flags in `AutoFanControlData[1..8]`, and nonzero targets in `[9..16]`. Every request updates all eight flags. |
+| GET returns eight mode/target bytes | `GetSmartFan` returns zero for automatic channels, otherwise their stored target. Its nine-byte internal response includes the completion byte, which is separate from the eight data bytes printed by `ipmitool raw`. This reads policy state, not PWM hardware or RPM. |
+| Automatic demand resumes when the manual flag is cleared | `libipmipdk.so.2.22.0`: `ASRR_FanOperation` at `0x14bd4` writes computed duty only to channels with a zero manual flag. |
+| Payload bytes 1–8 select PWM channels 0–7 | `ASRR_FanControlTask` at `0x14cc0` passes the corresponding stored duty and channel number to `g_HALFanPwmHandle[5]`. Third byte reaches PWM2. |
+| Nonzero duty uses percentage units | The HAL entry resolves to `libpwmtach.so.2.5.0:set_pwm_dutycycle` at `0xe70`. Its ioctl `0x40045004` reaches `pwmtach.ko`, validates 1–100 and converts to `floor(percent × 255 / 100)`. A nominal 35% becomes register compare value 89; electrical duty and RPM were not measured. |
+
+The derived handler logic is:
+
+```text
+SET: reject unless length == 8 and every byte <= 100
+     for each channel i:
+         manual[i] = request[i] != 0
+         if manual[i]: target[i] = request[i]
+GET: response[i] = target[i] if manual[i] else 0
+CONTROL TASK: update automatic targets; write each target to its PWM channel
+```
+
+The supplied SET example therefore selects manual 35% on the third channel and automatic mode on the other seven. Zero is an active mode selection, so preserving other settings requires the application's read-modify-write approach. The adapter now rejects readback values above 100 before a SET: the earlier test accepting an opaque `0xff` byte contradicted the firmware's whole-request validation and has been corrected.
+
+The bundled SDR and `libipmipar.so.2.22.0` establish these RPM sensor mappings:
+
+| Sensor label | IPMI sensor number | Tachometer input |
+| --- | --- | --- |
+| FAN1 | `0x60` | 0 |
+| FAN2 | `0x62` | 4 |
+| FAN3 | `0x66` | 2 |
+
+The FAN3/PWM2/tach2 combination agrees with the owner's vendor-supplied third-byte example. Tachometer input numbering alone does not establish physical PWM wiring. In particular, the binary does **not** establish whether FAN2 uses payload byte 2 or 5. The current UI's header-to-slot association remains provisional and requires the owner to validate each selected header; do not derive a new association merely from the tach number.
+
+The compiled automatic curve uses CPU Temp sensor `0x33`, with temperature steps `[45, 50, 55, 60, 65, 70, 74, 78, 82, 86, 90]` and duties `[30, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]` in `OpenLoopFanData` at `0x22960`. Firmware formula commands can alter this data. It contains no HDD-temperature input in the traced default path. Neither the 30% default nor acceptance of a 1% manual target proves a stable or thermally safe floor for attached fans.
+
+The SET success path only changes RAM. It stores no lease or expiry. In the traced control task, host-power-off clears the task's active state while preserving manual flags; reactivation retains those manual choices. `ASRR_FanInit` at `0x1491c` clears the flags and seeds 30% duties during BMC/IPMI initialization. This supports retaining application recovery and graceful restoration; it does not prove real BMC-reset or host-failure behavior. Target-host acceptance still needs installed-firmware identification, physical mapping, a tested floor, observed automatic restoration and lifecycle validation. The existing activation confirmations remain in place.
 
 ## 1. Objective and decisions
 
@@ -397,7 +443,6 @@ The first supported profile must match the owner's actual motherboard/server and
 A valid profile must establish automatic restoration before custom control is activated. Confirm whether a zone includes CPU, HBA, NIC or motherboard cooling. Where those components share the controlled zone, their thermal demand or verified conservative floor must be part of the policy.
 
 Phase-3 acceptance requires supervised proof that the intended physical fans respond, the floor is safe, automatic restoration works, and graceful stop/restart behave as documented. An abrupt-kill/reboot test needs a separately reviewed procedure on the owner's hardware. Do not enable an IPMI watchdog casually: its action may concern chassis power/reset rather than fan restoration.
-/home/agentic/Downloads/E3C246D2I\(01.64.00\)BMC.zip
 ## 7. Phase 4: direct SMART temperatures and the HDD curve
 
 ### Preferred provider

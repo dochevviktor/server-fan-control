@@ -26,7 +26,7 @@ func (r *protocolRunner) run(_ context.Context, args ...string) (string, error) 
 	case "fru print":
 		return "FRU Device Description : Builtin FRU Device (ID 0)\n Board Mfg : ASRock Rack\n Board Product : " + r.board + "\nFRU Device Description : Expansion (ID 1)\n Board Mfg : Other\n Board Product : Wrong", nil
 	case "sdr type Fan":
-		return "FAN1 | 30h | ok | 7.1 | 1500 RPM\nFAN2 | 31h | ns | 7.1 | No Reading\nFAN3 | 32h | ok | 7.1 | 1200 RPM", nil
+		return "FAN1 | 60h | ok | 7.1 | 1500 RPM\nFAN2 | 62h | ns | 7.1 | No Reading\nFAN3 | 66h | ok | 7.1 | 1200 RPM", nil
 	case "raw 0x3a 0x02":
 		return r.duties, nil
 	default:
@@ -47,8 +47,8 @@ func (r *protocolRunner) run(_ context.Context, args ...string) (string, error) 
 }
 
 func protocolFixture() (*localAdapter, *protocolRunner, Identity) {
-	runner := &protocolRunner{board: "E3C246D2I", firmware: "1.23", duties: "00 28 00 00 ff 00 00 00"}
-	return &localAdapter{runner: runner}, runner, Identity{Board: "E3C246D2I", Manufacturer: "ASRock Rack", Firmware: "1.23"}
+	runner := &protocolRunner{board: "E3C246D2I", firmware: "1.64", duties: "00 28 00 00 64 00 00 00"}
+	return &localAdapter{runner: runner}, runner, Identity{Board: "E3C246D2I", Manufacturer: "ASRock Rack", Firmware: "1.64"}
 }
 
 func TestProfilePreservesOtherSlotsAndVerifiesReadback(t *testing.T) {
@@ -57,11 +57,11 @@ func TestProfilePreservesOtherSlotsAndVerifiesReadback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []int{0, 40, 35, 0, 255, 0, 0, 0}
+	want := []int{0, 40, 35, 0, 100, 0, 0, 0}
 	if !reflect.DeepEqual(reading.Duties, want) {
 		t.Fatalf("duties %v", reading.Duties)
 	}
-	wantArgs := []string{"raw", "0x3a", "0x01", "0x00", "0x28", "0x23", "0x00", "0xff", "0x00", "0x00", "0x00"}
+	wantArgs := []string{"raw", "0x3a", "0x01", "0x00", "0x28", "0x23", "0x00", "0x64", "0x00", "0x00", "0x00"}
 	if !reflect.DeepEqual(runner.calls[3], wantArgs) {
 		t.Fatalf("write %v", runner.calls[3])
 	}
@@ -79,12 +79,12 @@ func TestProfileRefusesWrongIdentityAndInvalidInputBeforeWrite(t *testing.T) {
 		name, board, firmware string
 		slot, duty            int
 	}{
-		{"wrong-board", "E3C242D2I", "1.23", 3, 35},
+		{"wrong-board", "E3C242D2I", "1.64", 3, 35},
 		{"wrong-firmware", "E3C246D2I", "2.00", 3, 35},
-		{"slot-zero", "E3C246D2I", "1.23", 0, 35},
-		{"slot-nine", "E3C246D2I", "1.23", 9, 35},
-		{"over-duty", "E3C246D2I", "1.23", 3, 101},
-		{"negative-duty", "E3C246D2I", "1.23", 3, -1},
+		{"slot-zero", "E3C246D2I", "1.64", 0, 35},
+		{"slot-nine", "E3C246D2I", "1.64", 9, 35},
+		{"over-duty", "E3C246D2I", "1.64", 3, 101},
+		{"negative-duty", "E3C246D2I", "1.64", 3, -1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a, runner, id := protocolFixture()
@@ -128,10 +128,29 @@ func TestMalformedProfileNeverWrites(t *testing.T) {
 	}
 }
 
+func TestProfileRefusesOutOfRangeReadbackInEverySlot(t *testing.T) {
+	// The 1.64 firmware rejects the complete eight-byte SET if any byte exceeds
+	// 100, including an unselected slot. Never resend an unknown encoding.
+	for slot := 0; slot < 8; slot++ {
+		for _, invalid := range []string{"65", "ff"} {
+			a, runner, id := protocolFixture()
+			bytes := strings.Fields(runner.duties)
+			bytes[slot] = invalid
+			runner.duties = strings.Join(bytes, " ")
+			if _, err := a.Set(context.Background(), id, 3, 35); err == nil || !strings.Contains(err.Error(), "0..100") {
+				t.Fatalf("slot %d value %s was accepted: %v", slot+1, invalid, err)
+			}
+			if len(runner.calls) != 3 {
+				t.Fatalf("unexpected command after invalid readback: %v", runner.calls)
+			}
+		}
+	}
+}
+
 func TestProfileChecksUnselectedReadbackAndReportsUncertainWrite(t *testing.T) {
 	t.Run("unselected byte changed", func(t *testing.T) {
 		a, runner, id := protocolFixture()
-		runner.after = "00 00 23 00 ff 00 00 00"
+		runner.after = "00 00 23 00 64 00 00 00"
 		_, err := a.Set(context.Background(), id, 3, 35)
 		if err == nil || !strings.Contains(err.Error(), "slot 2") {
 			t.Fatalf("missing readback failure: %v", err)

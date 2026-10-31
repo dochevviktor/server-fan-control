@@ -1,0 +1,180 @@
+{
+  "analysis_date": "2026-10-31",
+  "method": "Static ARM ELF disassembly, dynamic symbols/relocations, CramFS extraction and SDR parsing; no firmware execution or hardware access.",
+  "source": {
+    "archive": "E3C246D2I(01.64.00)BMC.zip",
+    "image": "E3C246D2I_1.64.00.ima",
+    "archive_sha256": "d9b9e1948e25b1745f6f8711ef0784c4db7709ce0a537ded1f8a243942e25d14",
+    "image_sha256": "e574878294e74043aa02bf3cbdc458898df3a34d20a1c0dc35b4d63196e4e5bd",
+    "image_size": 33554432,
+    "rootfs": {
+      "format": "CramFS",
+      "offset": 2490368,
+      "size": 18100224
+    },
+    "webfs": {
+      "format": "CramFS",
+      "offset": 23461888,
+      "size": 4923392
+    },
+    "files": {
+      "rootfs/usr/local/lib/libipmipdkcmds.so.2.9.0": {
+        "size": 58872,
+        "sha256": "6e41364feb1f9cba140812b1b7774c5420c339964afb24bcd95b23a05fd3759c"
+      },
+      "rootfs/usr/local/lib/libipmipdk.so.2.22.0": {
+        "size": 110380,
+        "sha256": "a8c6ec457fc1c8e7368831b77853b8efc4ef0318849986a712e3fec73740a69c"
+      },
+      "rootfs/usr/local/bin/IPMIMain": {
+        "size": 146228,
+        "sha256": "c70952867e387616301d2fdc4a6500146f7dc3284f881911af46dfb20db23b15"
+      },
+      "rootfs/usr/local/lib/libipmimsghndlr.so.3.351.0": {
+        "size": 580232,
+        "sha256": "de1fb6a03a203ff37d34e362f8807960d624814b9beabc03c1d9e127e2c92f44"
+      },
+      "rootfs/usr/local/lib/libpwmtach.so.2.5.0": {
+        "size": 7748,
+        "sha256": "ff083ffba0d8e025ec0b06f305672edd79c6ce7f47e1398528029f671016aebc"
+      },
+      "rootfs/lib/modules/generic/misc/pwmtach.ko": {
+        "size": 9076,
+        "sha256": "c547a5ef7cf0794c714c76f0eab01395b709db3607b9a7d80a7d029f8c917394"
+      },
+      "rootfs/lib/modules/generic/misc/pwmtach_hw.ko": {
+        "size": 6716,
+        "sha256": "e0cd3cf35a0ce1f57d216223c4cc8fb268345e4e41f0f2baa31343c7c4d82aae"
+      },
+      "rootfs/usr/local/lib/ipmi/ast2500evb_ami/libipmipar.so.2.22.0": {
+        "size": 998452,
+        "sha256": "3fb21f160365b46dd33d426c5bbd18dc16d239c57f8ac35a9754272cded78f95"
+      },
+      "rootfs/etc/defconfig/BMC1/ast2500evb_ami/SDR.dat": {
+        "size": 2592,
+        "sha256": "f40a4c0049ffb43c81e58629748bdbdd8d103ece12e02bc47b051c8033541f4d"
+      }
+    }
+  },
+  "protocol": {
+    "netfn": "0x3a",
+    "dispatch": {
+      "library": "usr/local/lib/libipmipdkcmds.so.2.9.0",
+      "table_address": "0xb408",
+      "table_relocation_address": "0xb414",
+      "command_table_address": "0x148b8",
+      "preprocessor": "PDK_PreProcessCmd@0x730c",
+      "privilege_level": 4
+    },
+    "set": {
+      "command": "0x01",
+      "payload_length": 8,
+      "handler": "SetSmartFan@0x69b0",
+      "byte_range": [
+        0,
+        100
+      ],
+      "automatic_byte": 0,
+      "manual_percent_range": [
+        1,
+        100
+      ],
+      "out_of_range_completion": "0xcc",
+      "invalid_length_completion": "0xc7",
+      "success_response_length_including_completion": 1,
+      "updates_all_channels": true,
+      "persistence": "RAM; no write to nonvolatile storage or lease timer in handler"
+    },
+    "get": {
+      "command": "0x02",
+      "payload_length": 0,
+      "handler": "GetSmartFan@0x3a8c",
+      "data_length": 8,
+      "response_length_including_completion": 9,
+      "meaning": "Per slot: zero if automatic flag is clear, otherwise stored manual duty; neither current automatic duty nor a hardware PWM/RPM measurement."
+    }
+  },
+  "fan_control": {
+    "library": "usr/local/lib/libipmipdk.so.2.22.0",
+    "state_layout": {
+      "symbol": "AutoFanControlData",
+      "size": 17,
+      "byte_0": "task active state",
+      "bytes_1_8": "manual flags",
+      "bytes_9_16": "working duties"
+    },
+    "initialization": "ASRR_FanInit@0x1491c clears manual flags and seeds duties with30 before applying defaults.",
+    "automatic": "ASRR_FanOperation@0x14bd4 updates duty only for channels whose manual flag is zero.",
+    "pwm_application": "ASRR_FanControlTask@0x14cc0 passes slot1..8 to PWM channel0..7, using g_HALFanPwmHandle+0x14.",
+    "percentage_path": [
+      "g_HALFanInit index5: set_pwm_dutycycle",
+      "libpwmtach.so.2.5.0:set_pwm_dutycycle@0xe70",
+      "ioctl0x40045004",
+      "pwmtach.ko: percentage branch@0x874, conversion@0x888..0x8a4"
+    ],
+    "driver_conversion": "floor(percent *255 /100); 35 gives compare value89. This is register programming, not a measured waveform.",
+    "default_automatic_curve": {
+      "data_address": "OpenLoopFanData@0x22960",
+      "sensor_number": "0x33",
+      "sensor_name": "CPU Temp",
+      "temperatures_c": [
+        45,
+        50,
+        55,
+        60,
+        65,
+        70,
+        74,
+        78,
+        82,
+        86,
+        90
+      ],
+      "duties_percent": [
+        30,
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
+        90,
+        95,
+        100
+      ],
+      "note": "Compiled defaults; firmware can alter the formula. Neither 30% default nor 1% accepted input establishes a safe minimum for attached fans."
+    },
+    "host_power": "Traced FanControlTask power-off path clears active state but preserves per-channel manual flags. No automatic expiry exists in the traced control path."
+  },
+  "rpm_sensors": [
+    {
+      "name": "FAN1",
+      "sensor_number": "0x60",
+      "tach_channel": 0
+    },
+    {
+      "name": "FAN2",
+      "sensor_number": "0x62",
+      "tach_channel": 4
+    },
+    {
+      "name": "FAN3",
+      "sensor_number": "0x66",
+      "tach_channel": 2
+    }
+  ],
+  "mapping_evidence": {
+    "sdr": "etc/defconfig/BMC1/ast2500evb_ami/SDR.dat",
+    "sensor_adapter": "usr/local/lib/ipmi/ast2500evb_ami/libipmipar.so.2.22.0",
+    "fan3": "Third payload byte -> PWM2; FAN3 RPM -> tach2. Vendor-provided example independently identifies third byte for case fan.",
+    "remaining": "RPM tach number alone does not prove physical pairing to an equally numbered PWM output. In particular FAN2 tach4 does not prove whether its PWM is1 or4."
+  },
+  "remaining_host_checks": [
+    "Installed firmware matches analyzed image/record",
+    "Physical header/PWM/sensor mapping",
+    "Minimum stable and thermally sufficient duty",
+    "Automatic mode physically takes effect",
+    "Actual BMC reset, process loss and startup recovery behavior"
+  ]
+}
