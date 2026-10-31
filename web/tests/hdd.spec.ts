@@ -34,6 +34,7 @@ async function login(page: Page) {
   await page.goto('/');
   await page.getByLabel('Admin token',{exact:true}).fill('e2e-test-admin-token-0123456789abcdef');
   await page.getByRole('button',{name:'Open console'}).click();
+  await page.getByRole('tab',{name:'HDD cooling',exact:true}).click();
   await expect(page.getByRole('heading',{name:'HDD case-fan curve',exact:true})).toBeVisible();
 }
 async function confirmations(page: Page) {
@@ -58,7 +59,9 @@ test('HDD curve preview stays local; save draft and explicit guarded activation 
   await expect(panel.getByText('HDD curve saved and activation requested.',{exact:false})).toBeVisible();
   expect(f.puts[1].hdd?.mode).toBe('curve');
   expect(f.puts[1].hdd?.curve.points?.[1].temperature).toBe(36);
+  await page.getByRole('tab',{name:'System fans',exact:true}).click();
   await expect(page.getByRole('button',{name:'Apply system fan duty',exact:true})).toBeDisabled();
+  await page.getByRole('tab',{name:'HDD cooling',exact:true}).click();
   await expect(panel.getByText('Average HDD curve active',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Stop HDD curve & restore automatic',exact:true}).click();
   await expect(panel.getByText('HDD curve stopped and owned system fans restored to automatic.',{exact:true})).toBeVisible();
@@ -100,6 +103,7 @@ test('real mock HDD collector drives the saved curve and restart requires explic
   test.setTimeout(65_000);
   const {readFile}=await import('node:fs/promises');
   await login(page);
+  await page.getByRole('tab',{name:'System fans',exact:true}).click();
   if (!await page.getByRole('combobox',{name:'System fan profile',exact:true}).isVisible()) {
     await page.getByText('Hardware profile & verification',{exact:false}).click();
   }
@@ -111,8 +115,9 @@ test('real mock HDD collector drives the saved curve and restart requires explic
   await page.getByLabel('I verified the minimum duty and cooling',{exact:false}).check();
   await page.getByRole('button',{name:'Save system fan profile',exact:true}).click();
   await expect(page.getByText('Hardware profile saved.',{exact:false})).toBeVisible();
+  await page.getByRole('tab',{name:'HDD cooling',exact:true}).click();
   // Wait for the HDD editor to observe the hardware profile's new revision.
-  await expect(page.getByText('Save a verified system-fan hardware profile above before applying an HDD curve.',{exact:true})).toBeHidden();
+  await expect(page.getByText('Save a verified hardware profile in System fans.',{exact:true})).toBeHidden();
   await page.getByRole('button',{name:'Add selected HDD',exact:false}).click();
   await page.getByLabel('HDD 1 ID',{exact:true}).fill('data-1');
   await page.getByLabel('HDD 1 expected serial',{exact:true}).fill('MOCK-DATA-001');

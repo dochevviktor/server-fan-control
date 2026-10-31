@@ -32,6 +32,7 @@ async function login(page: Page) {
   await page.goto('/');
   await page.getByLabel('Admin token',{exact:true}).fill('e2e-test-admin-token-0123456789abcdef');
   await page.getByRole('button',{name:'Open console'}).click();
+  await page.getByRole('tab',{name:'System fans',exact:true}).click();
   await expect(page.getByRole('heading',{name:'System fans',exact:true})).toBeVisible();
 }
 async function verifyProfile(page: Page) {
@@ -52,7 +53,9 @@ test('system fans stay available without GPUs; verification precedes explicit ta
   const f=await fixture(page);
   await page.route('**/api/v1/gpus',route=>route.fulfill({json:{gpus:[]}}));
   await login(page);
+  await page.getByRole('tab',{name:'GPU cooling',exact:true}).click();
   await expect(page.getByRole('heading',{name:'No GPU telemetry available'})).toBeVisible();
+  await page.getByRole('tab',{name:'System fans',exact:true}).click();
   await expect(page.getByRole('button',{name:'Apply system fan duty'})).toBeDisabled();
   await verifyProfile(page);
   expect(f.targets).toEqual([]);
