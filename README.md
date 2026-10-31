@@ -1,12 +1,12 @@
 # Server Fan Control
 
-A small Linux service for server cooling, currently providing a Svelte dashboard for NVIDIA GPU telemetry and editable fan curves. Go owns NVML, configuration and the HTTP API; the UI is embedded in the binary. CUDA and packaged NVIDIA drivers are absent from the runtime image.
+A small Linux service for server cooling, providing a Svelte dashboard for NVIDIA GPUs, local IPMI fans and SMART HDD temperatures, with editable GPU and HDD fan curves. Go owns NVML, configuration and the HTTP API; the UI is embedded in the binary. CUDA and packaged NVIDIA drivers are absent from the runtime image.
 
-This project began as a fork of [Max Zanoga’s NVIDIA Fan Control](https://github.com/ZanMax/nvidia-fan-control). The `server-fan-control` name reflects the planned expansion to IPMI system fans and HDD-temperature curves; local IPMI monitoring and a guarded ASRock actuator are now available; HDD-temperature curves remain a later phase. The upstream MIT license and attribution are retained.
+This project began as a fork of [Max Zanoga’s NVIDIA Fan Control](https://github.com/ZanMax/nvidia-fan-control). The `server-fan-control` name reflects its IPMI system-fan and HDD-temperature scope. Local IPMI monitoring, a guarded ASRock actuator and an average-HDD-temperature curve are available. The upstream MIT license and attribution are retained.
 
 New GPUs remain in firmware automatic mode. Saving a draft does not activate it. Applying a curve explicitly selects a GPU by UUID and requires confirmation of that hardware's minimum fan duty and critical temperature. Unsupported and passively cooled GPUs remain visible for monitoring.
 
-The GPU MVP includes software tests and a mock mode. **Real fan writes, reset behavior, permissions and thermal response still require supervised validation on your target GPU/TrueNAS host.** Local IPMI is opt-in and remains monitoring-only until a board-specific verification record is saved. Disk-temperature control remains a later phase.
+The GPU MVP includes software tests and a mock mode. **Real fan writes, reset behavior, permissions and thermal response still require supervised validation on your target GPU/TrueNAS host.** Local IPMI is opt-in and remains monitoring-only until a board-specific verification record is saved. HDD control additionally requires verified disk identity, transport/standby behavior, thermal limits and shared-zone cooling.
 
 ## Try the dashboard without hardware
 
@@ -14,11 +14,12 @@ Requires Linux, Go 1.20 or later, a C compiler, Node 24 and npm. Container build
 
 ```bash
 make build
-./bin/server-fan-control --mock --dev-no-auth \
+FAN_CONTROL_IPMI_ENABLED=true FAN_CONTROL_SMART_ENABLED=true \
+  ./bin/server-fan-control --mock --dev-no-auth \
   --listen 127.0.0.1:8080 --config data/mock/config.json
 ```
 
-Open **http://127.0.0.1:8080**. The mock badge is always visible; two simulated GPUs demonstrate dual-fan control and passive cooling. Mock mode never loads NVML. The authentication bypass is accepted only with `--mock` and a literal loopback listen IP. Keep mock and real data in separate directories.
+Open **http://127.0.0.1:8080**. The mock badge is always visible; two simulated GPUs demonstrate dual-fan control and passive cooling. With both environment variables set to `true`, the system-fan and HDD panels also use simulated hardware. Mock mode never loads NVML or runs hardware commands. The authentication bypass is accepted only with `--mock` and a literal loopback listen IP. Keep mock and real data in separate directories.
 
 The dashboard provides GPU selection, temperature/activity/VRAM/power cards, per-fan percentages, a short history graph, and a curve graph with draggable points and a keyboard-accessible numeric editor. Point dragging changes the local draft only. Saved and applied revisions are shown separately. Polling does not overwrite unsaved edits; concurrent saves return a revision conflict.
 
@@ -120,7 +121,16 @@ Enable local IPMI independently of the GPU loop:
 docker compose -f compose.yaml -f compose.ipmi.yaml up -d
 ```
 
-The override adds `--ipmi` and maps only `/dev/ipmi0`. The host must already have a working OpenIPMI device; no host drivers are installed by this app. The runtime includes `ipmitool`, invokes it with `-I open`, and needs no BMC network credentials. Keep any reverse-proxy arguments in the override's complete `command` list. Native users can install `ipmitool` and add `--ipmi`. Missing IPMI hardware is reported as unavailable; it never becomes simulated data. `--mock --ipmi` simulates both adapters without accessing hardware.
+The override sets `FAN_CONTROL_IPMI_ENABLED=true` and maps only `/dev/ipmi0`. It inherits the base command, including any reverse-proxy arguments you configure there. The host must already have a working OpenIPMI device; no host drivers are installed by this app. The runtime includes `ipmitool`, invokes it with `-I open`, and needs no BMC network credentials. Native users can install `ipmitool` and set `FAN_CONTROL_IPMI_ENABLED=true` before launching the service. Missing IPMI hardware is reported as unavailable; it never becomes simulated data. Setting that variable with `--mock` simulates both adapters without accessing hardware.
+
+For a **TrueNAS Custom App**, add these entries under **Environment Variables** as needed:
+
+| Variable | Value to enable | Default |
+| --- | --- | --- |
+| `FAN_CONTROL_IPMI_ENABLED` | `true` | `false` |
+| `FAN_CONTROL_SMART_ENABLED` | `true` | `false` |
+
+Unset or empty values disable the integration; invalid boolean values fail startup. SMART requires IPMI to be enabled. These variables are read at process startup, so save the app settings and recreate/restart the container to apply changes. They do not replace device mappings: IPMI still needs `/dev/ipmi0`, and SMART needs each selected HDD exposed individually. Enabling either integration starts monitoring; fan takeover still requires the saved hardware verification and an explicit apply. The base Compose file defaults both variables to `false`; its optional overrides enable the corresponding integrations.
 
 Start with the read-only diagnostic, which needs neither a configuration nor an admin token:
 
@@ -144,11 +154,11 @@ SET:  ipmitool raw 0x3a 0x01 00 00 35 00 00 00 00 00
 
 The [board manual](https://download.asrock.com/Manual/E3C246D2I.pdf) lists FAN1 (CPU), FAN2 (front) and FAN3 (rear). Eight protocol bytes do **not** prove eight physical headers. This profile offers FAN1–FAN3, provisionally mapped to payload slots 1–3; the supplied example uses slot 3. The sensor name for each header is configurable, defaulting to `FAN1`, `FAN2`, `FAN3`. Verify the physical header/slot/sensor correspondence on your host. Static analysis of the supplied **01.64.00 firmware image confirms zero as automatic, 1–100 as manual percentage, and the eight-byte request/readback format**. The third byte drives PWM2, consistent with the vendor FAN3 example. FAN2's physical PWM association remains unresolved; its RPM input is tach4, which alone does not establish its PWM slot. Verify the installed firmware and physical mapping; no real hardware actuation has been validated in this workspace. See [firmware analysis and addresses](CODEX_HANDOVER.md#firmware-analysis-update--bmc-016400-31-october-2026) and [machine-readable evidence](docs/firmware/e3c246d2i-1.64-evidence.json).
 
-The System fans panel starts in monitoring mode. Before enabling manual targets, save a verification record containing the exact discovered board/manufacturer/firmware, the selected profile, a tested minimum duty and explicit confirmations that header mapping, automatic restoration and shared-component cooling have been validated. In particular, establish a known-good restoration procedure before any application takeover. Do not mark these confirmations based only on an API readback. A firmware or board change invalidates writes against the record. The safe minimum applies to every selected header; use a floor safe for all headers you intend to control. Settings cannot change while fans are owned: restore automatic first.
+The System fans panel starts in monitoring mode. Before enabling manual targets, save a verification record containing the exact discovered board/manufacturer/firmware, the selected profile, a tested minimum duty and explicit confirmations that header mapping, automatic restoration and shared-component cooling have been validated. In particular, establish a known-good restoration procedure before any application takeover. Do not mark these confirmations based only on an API readback. A firmware or board change invalidates writes against the record. The safe minimum applies to every selected header; use a floor safe for all headers you intend to control. Hardware verification settings cannot change while fans are owned: restore automatic first.
 
-After verification, select a header and a duty between the verified floor and 100%, then apply a manual target. The UI shows mode/target readback separately from RPM. On firmware 1.64, automatic slots read back zero even while the fan is spinning; manual slots report the stored target, which is not a hardware PWM measurement. RPM confirms a sensor reading, not a particular duty percentage or safe thermal response. A selected sensor must report healthy positive RPM; missing/failed sensors, lost duty readback or changed identity cause latched fallback and attempted automatic restoration. Targets are for supervised operation in this phase: there is no HDD curve or CPU/HBA thermal guard yet.
+After verification, select a header and a duty between the verified floor and 100%, then apply a manual target. The UI shows mode/target readback separately from RPM. On firmware 1.64, automatic slots read back zero even while the fan is spinning; manual slots report the stored target, which is not a hardware PWM measurement. RPM confirms a sensor reading, not a particular duty percentage or safe thermal response. A selected sensor must report healthy positive RPM; missing/failed sensors, lost duty readback or changed identity cause latched fallback and attempted automatic restoration. Manual targets are for supervised operation. HDD automation uses the separate policy below, including an explicitly verified floor for shared CPU/HBA/board cooling.
 
-**Return owned fans to automatic** writes zero only to headers taken over by this application, verifies readback, and reports hardware and journal persistence outcomes separately. Manual targets are not saved for automatic reapplication. The service journals verified identity and ownership before takeover, restores on failures and graceful shutdown, and recovers outstanding ownership at startup. Removing `--ipmi` still attempts recovery if an IPMI ownership journal exists; retain device access until restoration succeeds. SIGKILL, OOM, host failure and BMC failure can prevent restoration; restart recovery is not a hardware lease.
+**Return owned fans to automatic** writes zero only to headers taken over by this application, verifies readback, and reports hardware and journal persistence outcomes separately. Manual targets are not saved for automatic reapplication. The service journals verified identity and ownership before takeover, restores on failures and graceful shutdown, and recovers outstanding ownership at startup. Disabling `FAN_CONTROL_IPMI_ENABLED` still attempts recovery if an IPMI ownership journal exists; disable SMART too, and retain device access until restoration succeeds. SIGKILL, OOM, host failure and BMC failure can prevent restoration; restart recovery is not a hardware lease.
 
 IPMI verification settings live in `ipmi.json` beside the main GPU configuration (`ipmi.mock.json` in mock mode). They have their own schema/revision, last-good backup and pending-transaction rollback under the same data-directory lock. Their ownership journal uses `.ownership.json` (or `.ownership.mock.json`) appended to that path. Keep these files with the persistent directory and never remove a pending journal to hide an error. Keeping separate settings and workers allows IPMI operations without waiting on GPU hardware calls.
 
@@ -159,9 +169,40 @@ IPMI verification settings live in `ipmi.json` beside the main GPU configuration
 | `POST /api/v1/ipmi/target` | Apply `{ "fan": 3, "duty": 35 }` after verification |
 | `POST /api/v1/ipmi/default` | Restore all owned headers; no revision precondition |
 
-These endpoints use the existing session, Origin and CSRF protection. Configuration saves never issue manual commands. A successful HTTP response to a target/default request still requires checking `applied`/`restored`, `persisted`, `hardware_error` and `storage_error`. A timeout can leave an operation finishing in the worker; refresh status before retrying.
+These endpoints use the existing session, Origin and CSRF protection. Saving hardware verification or an automatic HDD draft does not issue manual commands. Explicitly saving an HDD policy in `curve` mode arms its controller. A successful HTTP response to a target/default request still requires checking `applied`/`restored`, `persisted`, `hardware_error` and `storage_error`. A timeout can leave an operation finishing in the worker; refresh status before retrying.
 
-Target-host acceptance remains outstanding: record TrueNAS/BMC versions and read-only output; confirm the installed firmware matches the analyzed protocol and verify physical FAN3 mapping; verify the safe floor under load, automatic restoration, SIGTERM and restart recovery. Do not infer unattended thermal safety from the software tests. HDD sensing and automatic curves are phase 4.
+Target-host acceptance remains outstanding: record TrueNAS/BMC versions and read-only output; confirm the installed firmware matches the analyzed protocol and verify physical FAN3 mapping; verify the safe floor under load, automatic restoration, SIGTERM and restart recovery. Do not infer unattended thermal safety from the software tests. HDD sensing and curve acceptance are described below.
+
+## HDD temperatures and case-fan curve
+
+Set `FAN_CONTROL_SMART_ENABLED=true` alongside `FAN_CONTROL_IPMI_ENABLED=true` to collect the explicitly configured HDDs. Both default to `false`; setting SMART alone fails startup. The runtime includes `smartctl` from smartmontools; native installations need that package too. No smartd daemon is started. The SMART worker is independent of both GPU and IPMI work. The default interval is 60 seconds after a scan completes, with two concurrent reads, a 10-second per-command timeout and 128 KiB output limits. Up to 32 selected disks are supported; a worst-case scan can take about 160 seconds before the next interval. Choose freshness and grace budgets for the measured scan duration; old samples can expire during a slow scan and trigger fallback. The dashboard/API reads cached snapshots, so refreshing it does not wake disks or manufacture new samples.
+
+The initial provider accepts verified **ATA and SAT** paths only. It invokes fixed arguments `smartctl -j -i -A -n standby,3,5 -d TYPE DEVICE`, reads normalized `temperature.current`, and requires a rotating disk and the configured serial on each successful read. It never scans/autodetects devices, runs self-tests, changes SMART settings or standby timers, or writes firmware. SCSI/SAS, RAID selectors and NVMe are not supported in this increment. Fixture tests are synthetic; real drive/controller captures and standby behavior still need target-host validation. See the [packaged smartctl manual](https://manpages.debian.org/trixie/smartmontools/smartctl.8.en.html) for exit bitmasks and transport-specific power checks.
+
+Configure the HDD group in the dashboard using an explicit ID, expected serial, container device path and `ata` or `sat` transport. A new or replacement disk never joins automatically. Only map selected devices; a by-id symlink without its target is insufficient. [compose.smart.yaml](compose.smart.yaml) is a one-drive template, combined with both existing Compose files:
+
+```bash
+# Resolve and verify the selected disk on the host before setting this variable.
+export FAN_CONTROL_HDD_DEVICE=/dev/REPLACE_WITH_VERIFIED_DEVICE
+# Review the expanded configuration before deployment.
+docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml config
+```
+
+The template enables both integrations through environment variables and exposes the chosen device as `/dev/hdd-selected`; enter that path and its independently verified serial in the UI. Both overrides inherit the base command, preserving its authentication and reverse-proxy settings. Add other selected devices individually. Device access and any required capability, such as SYS_RAWIO, depend on transport and must be tested; the template grants neither privileged mode nor broad device access. A read-only mapping alone does not constrain all disk IOCTLs. Coordinate host validation with TrueNAS monitoring, including confirmation that repeated standby checks do not wake disks or alter intended sleep behavior.
+
+Save the disk selection and curve as a draft first. The dashboard shows per-drive status, completed/last-valid times, SMART health reasons, mean, maximum, coverage, target and override reason. The API also exposes attempt timestamps and numeric health flags. Last-known values remain labeled with their original timestamps after errors or standby; they are not fresh readings. Collection completion timestamps do not establish the disk firmware sensor's internal sample time. Health exit bits are reported separately from transport failures.
+
+After validating the IPMI profile, choose a case-fan header and enter the HDD critical threshold, freshness/grace budgets, downward hysteresis/hold and the shared-zone minimum duty. These values require explicit hardware acceptance. The shared-zone floor must cool every affected CPU, HBA, NIC and board component across the intended workload even when the disks are cool. This implementation uses that conservative floor; it does not read CPU/HBA thermal guards. If such a floor cannot be validated, leave automation disabled.
+
+**Save and apply** arms the selected header using the arithmetic mean of fresh selected HDD readings. The target is the maximum of the curve demand, the IPMI profile floor and the verified shared-zone floor. Step and linear curves reuse the GPU controller's endpoint saturation and asymmetric cooling logic: rising demand acts on the next IPMI evaluation, while reductions require hysteresis and a cooling hold. The hottest selected HDD reaching the configured critical threshold bypasses smoothing and triggers the verified automatic fallback. The upper curve endpoint must request 100% at or below that threshold.
+
+Missing, failed, replaced or expired sensors never become zero. Incomplete active-disk coverage prevents reductions during a bounded grace period, then triggers automatic fallback. Sleeping disks are excluded from the mean; a mixed sleeping/awake group cannot justify reducing the last target. An initially mixed sleeping/awake group starts at 100% because there is no prior target to preserve. All selected disks asleep requests verified firmware automatic operation, not an average of zero drives. If the controller has no prior target and coverage is incomplete, it stays automatic. Fallback and write/readback/rotation errors latch until the owner explicitly restores automatic and reapplies after resolving the problem. An unreachable BMC is reported as unconfirmed restoration, not successful cooling.
+
+Changing an active HDD policy first restores the owned header, then saves and applies the replacement; a failed restoration prevents the change. Hardware verification changes still require returning to automatic first. Manual duty commands are rejected while the HDD curve is armed. **Restore system fans to automatic** disarms HDD control before attempting configuration persistence and hardware restoration, so storage failure cannot leave a curve running in that process. Settings and curve drafts persist in `ipmi.json` with revision checks. On every restart, ownership recovery runs first and the curve requires explicit reapplication; a saved `curve` mode alone does not resume control. SIGTERM restores owned fans. Abrupt process/host failure has no guaranteed hardware fallback or lease.
+
+`GET /api/v1/disks` is authenticated and read-only. `GET /api/v1/ipmi` includes the HDD policy state and aggregates. HDD settings use the existing revision-checked `/api/v1/ipmi/config`, and automatic restoration uses `/api/v1/ipmi/default` without an ETag requirement. SMART collection is disabled unless explicitly opted in; enabling the collector does not activate a fan curve.
+
+Before unattended use, validate real ATA/SAT JSON, identity/replacement handling, permissions, no unintended wakeups, selected header mapping, loaded-system temperatures, full scan and control response with a stalled selected drive, unaffected GPU sampling, hottest/missing sensor scenarios, restoration and restart behavior on the actual TrueNAS/BMC versions. Passing mock tests establishes software behavior only.
 
 ## API and development
 
@@ -178,7 +219,7 @@ The production UI and API share one origin. During frontend development, `npm --
 | `POST /api/v1/gpus/{uuid}/default` | Restore automatic; return hardware/storage outcomes |
 | `GET /api/v1/history?uuid=…` | Bounded history for one GPU |
 
-All `/api` routes except login require a session. Mutations require a matching Origin and `X-CSRF-Token`. PUT config requires quoted `If-Match` and the same body revision: missing preconditions return 428, conflicts 412, invalid policies 400. Default restoration does not require an ETag and returns its separate outcomes even when persistence fails. HTTP mutations wait up to 10 seconds. A 503 timeout can mean an already-started hardware operation is still running; refresh status before retrying. IPMI uses the separate worker and endpoints described above. Disk endpoints remain a later phase.
+All `/api` routes except login require a session. Mutations require a matching Origin and `X-CSRF-Token`. PUT config requires quoted `If-Match` and the same body revision: missing preconditions return 428, conflicts 412, invalid policies 400. Default restoration does not require an ETag and returns its separate outcomes even when persistence fails. HTTP mutations wait up to 10 seconds. A 503 timeout can mean an already-started hardware operation is still running; refresh status before retrying. IPMI uses the separate worker and endpoints described above. `GET /api/v1/disks` provides the independent SMART snapshot without initiating a read.
 
 ```bash
 make test                 # frontend check/build, Go race tests and vet
@@ -206,6 +247,8 @@ Use Docker-based TrueNAS Apps (24.10 or later). **No TrueNAS release or real GPU
 5. First run the read-only diagnostic and compare telemetry. Under supervision, verify each selected physical fan accepts a conservative target, Return to automatic resets it, and SIGTERM/restart restores ownership correctly. Confirm no other software owns the same fans. Validate thermal response and failure scenarios before unattended operation.
 
 ## Image measurements
+
+Phase 4 measured **108,038,946 bytes (103.03 MiB) unpacked** on 31 October 2026 with rootless Podman, Linux amd64 (`server-fan-control:hdd`). Frontend type checking/build, all 17 browser tests, Go race tests/vet both locally and in the pinned Go builder, Compose validation and runtime-content checks passed. Packaged mock tests cover SMART collection, mean/max calculation, selected-zone target/readback, SIGTERM restoration, recreation without automatic curve reactivation, and explicit return to automatic. SMART protocol fixtures are synthetic; no real HDD/BMC/GPU or TrueNAS thermal acceptance was performed.
 
 Phase 3 measured **105,241,879 bytes (100.37 MiB) unpacked** on 31 October 2026 with rootless Podman, Linux amd64. Go race tests/vet, frontend type checking/build, all 13 browser tests, Compose validation, image-content checks and packaged mock GPU/IPMI lifecycle tests passed. Four IPMI browser tests were rerun after final UI refinements. The packaged tests exercise FAN3 target/readback, automatic reset, SIGTERM ownership cleanup and recreation without resuming a manual IPMI target. The image remains below the 150 MiB budget. No real GPU/BMC actuation or TrueNAS host acceptance was performed for this phase.
 

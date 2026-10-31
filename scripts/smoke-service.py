@@ -34,9 +34,10 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
 
     def launch():
         command('run', '-d', '--name', name, '--read-only',
+                '--env', 'FAN_CONTROL_IPMI_ENABLED=true', '--env', 'FAN_CONTROL_SMART_ENABLED=true',
                 '-p', '127.0.0.1::8080', '-v', f'{data}:/data:Z',
                 '-v', f'{secret}:/run/secrets/admin-token:ro,Z', image,
-                '--mock', '--ipmi', '--listen', '0.0.0.0:8080', '--config', '/data/config.json',
+                '--mock', '--listen', '0.0.0.0:8080', '--config', '/data/config.json',
                 '--admin-token-file', '/run/secrets/admin-token')
         port = command('port', name, '8080/tcp').rsplit(':', 1)[1]
         base = f'http://127.0.0.1:{port}'
@@ -138,6 +139,43 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
         auto = request('/ipmi/default', 'POST', {})
         assert auto['restored'] and auto['persisted']
         assert request('/ipmi')['reading']['duties'] == [0] * 8
+        # Configure selected simulated disks as a draft, then explicitly activate.
+        settings = request('/ipmi/config')
+        settings['hdd'] = {
+            'mode': 'automatic', 'fan': 3,
+            'drives': [{'id': f'hdd-{i}', 'path': f'/dev/mock-hdd-{i}',
+                        'type': 'ata', 'serial': f'MOCK-HDD-{i}'} for i in range(2)],
+            'curve': {'type': 'linear', 'points': [
+                {'temperature': 25, 'duty': 30}, {'temperature': 50, 'duty': 100}]},
+            'sampling_seconds': 60, 'freshness_seconds': 180, 'missing_grace_seconds': 30,
+            'critical_temp': 55, 'hysteresis': 2, 'cooling_hold_seconds': 60,
+            'shared_min_duty': 30, 'limits_confirmed': True,
+            'standby_verified': True, 'shared_cooling_verified': True,
+        }
+        draft = request('/ipmi/config', 'PUT', settings, settings['revision'])
+        for _ in range(100):
+            disks = request('/disks')
+            if len(disks['samples']) == 2 and all(d['status'] == 'ok' for d in disks['samples']):
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError('mock HDD collection did not become available')
+        assert disks['enabled'] and disks['mock']
+        assert request('/ipmi')['owned_fans'] == [], 'draft took fan ownership'
+        draft['hdd']['mode'] = 'curve'
+        request('/ipmi/config', 'PUT', draft, draft['revision'])
+        for _ in range(200):
+            status = request('/ipmi')
+            if status['hdd']['state'] == 'curve':
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError('HDD curve did not activate')
+        temperatures = [d['temperature_c'] for d in disks['samples']]
+        assert status['hdd']['mean_c'] == sum(temperatures) / len(temperatures)
+        assert status['hdd']['max_c'] == max(temperatures)
+        assert status['reading']['duties'][2] == status['hdd']['target']
+        assert status['owned_fans'] == [3]
         assert request('/config')['revision'] == saved['revision'], 'configuration did not survive recreation'
         assert request('/gpus')['gpus'][0]['state'] == 'curve'
         result = request('/gpus/GPU-MOCK-001/default', 'POST', {})
@@ -146,9 +184,15 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
         stop_and_remove()
 
         request = launch()
+        assert request('/ipmi/config')['hdd']['mode'] == 'curve', 'curve settings were not retained'
+        assert request('/ipmi')['hdd']['state'] == 'awaiting_activation', 'HDD curve resumed without explicit activation'
+        assert request('/ipmi')['owned_fans'] == []
+        auto = request('/ipmi/default', 'POST', {})
+        assert auto['restored'] and auto['persisted']
+        assert request('/ipmi/config')['hdd']['mode'] == 'automatic'
         assert request('/config')['gpus']['GPU-MOCK-001']['mode'] == 'automatic'
         assert request('/gpus')['gpus'][0]['state'] == 'automatic'
         stop_and_remove()
-        print('Container mock smoke passed: embedded UI, authentication, GPU/IPMI targets, readback, SIGTERM restoration, recreation and automatic mode.')
+        print('Container mock smoke passed: embedded UI, authentication, GPU/IPMI targets, HDD average curve, readback, SIGTERM restoration, recreation and explicit reactivation.')
     finally:
         subprocess.run([engine, 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

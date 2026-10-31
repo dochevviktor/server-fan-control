@@ -149,3 +149,27 @@ func (s *State) Next(c Curve, t, hysteresis float64, hold time.Duration, now tim
 	}
 	return s.duty
 }
+
+// HoldAt reconciles an externally imposed demand (for example a temporary
+// sensor-coverage guard) with the smoothing state and restarts the cooling hold.
+// Step hysteresis follows the highest threshold whose demand is no greater
+// than the imposed duty, so clearing a guard cannot immediately lower cooling.
+func (s *State) HoldAt(c Curve, duty int) {
+	s.initialized = true
+	s.duty = duty
+	s.index = 0
+	s.coolingSince = time.Time{}
+	if len(c.Ranges) > 0 {
+		for i, p := range c.Ranges {
+			if p.FanSpeed <= duty {
+				s.index = i
+			}
+		}
+	} else {
+		for i, p := range c.Points {
+			if p.Duty <= duty {
+				s.index = i
+			}
+		}
+	}
+}

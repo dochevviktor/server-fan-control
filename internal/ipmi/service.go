@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/curve"
+	"github.com/dochevviktor/server-fan-control/internal/disks"
 )
 
 type serviceCommand struct {
@@ -45,6 +47,10 @@ type Service struct {
 	write            func(string, any) error
 	pollInterval     time.Duration
 	operationTimeout time.Duration
+	diskSource       func() disks.Snapshot
+	hddArmed         bool
+	hddCurve         curve.State
+	hddMissingSince  time.Time
 }
 
 // NewService requires the caller to hold the shared configuration directory lock.
@@ -185,17 +191,13 @@ func (s *Service) Run(ctx context.Context) (err error) {
 			switch c.kind {
 			case "update":
 				r.settings, r.err = s.update(c.settings, c.expected)
+				if r.err == nil {
+					s.poll(ctx)
+				}
 			case "set":
 				r.result, r.err = s.set(ctx, c.fan, c.duty)
 			case "automatic":
-				r.result = s.restoreBounded(ctx)
-				if r.result.Restored && r.result.Persisted {
-					s.latched = ""
-					s.publish("automatic", "owned fans restored; other payload slots unchanged", nil)
-				} else {
-					s.latched = "automatic restoration pending"
-					s.publish("degraded", r.result.HardwareError+" "+r.result.StorageError, nil)
-				}
+				r.result = s.automatic(ctx)
 			}
 			c.reply <- r
 		}
@@ -210,12 +212,31 @@ func (s *Service) update(next Settings, expected uint64) (Settings, error) {
 	if err := ValidateSettings(next); err != nil {
 		return current, err
 	}
-	if len(s.owned) > 0 && !reflect.DeepEqual(next, current) {
-		return current, fmt.Errorf("%w: return owned fans to automatic before changing settings", ErrInvalid)
+	if len(s.owned) > 0 {
+		if !s.hddArmed && next.HDD != nil && next.HDD.Mode == "curve" {
+			return current, fmt.Errorf("%w: restore manually owned fans before applying the HDD curve", ErrInvalid)
+		}
+		if !reflect.DeepEqual(next, current) && (!sameHardware(next, current) || current.HDD == nil || !s.hddArmed) {
+			return current, fmt.Errorf("%w: return owned fans to automatic before changing settings", ErrInvalid)
+		}
+		if s.hddArmed {
+			s.hddArmed = false
+			result := s.restoreBounded(context.Background())
+			if !result.Restored || !result.Persisted {
+				s.latched = "HDD settings change restoration pending"
+				return current, fmt.Errorf("HDD settings change: %s %s", result.HardwareError, result.StorageError)
+			}
+		}
 	}
 	if expected == ^uint64(0) {
 		return current, fmt.Errorf("%w: revision exhausted", ErrInvalid)
 	}
+	// A failed save must never resume a policy the operator tried to replace.
+	s.hddArmed = false
+	return s.saveSettings(next, current, true)
+}
+
+func (s *Service) saveSettings(next, current Settings, arm bool) (Settings, error) {
 	next.Revision++
 	if err := s.write(s.path+".bak", current); err != nil {
 		return current, err
@@ -232,6 +253,9 @@ func (s *Service) update(next Settings, expected uint64) (Settings, error) {
 	s.mu.Lock()
 	s.settings = cloneValue(next)
 	s.mu.Unlock()
+	s.hddCurve.Reset()
+	s.hddMissingSince = time.Time{}
+	s.hddArmed = arm && next.HDD != nil && next.HDD.Mode == "curve"
 	return next, nil
 }
 
@@ -248,6 +272,12 @@ func healthySensor(r Reading, name string) bool {
 }
 
 func (s *Service) set(ctx context.Context, fan, duty int) (Result, error) {
+	if s.hddArmed {
+		return Result{}, fmt.Errorf("%w: restore HDD curve to automatic before manual targets", ErrInvalid)
+	}
+	return s.setTarget(ctx, fan, duty)
+}
+func (s *Service) setTarget(ctx context.Context, fan, duty int) (Result, error) {
 	c := s.Config()
 	if fan < 1 || fan > 3 || duty < 1 || duty > 100 || duty < c.MinDuty {
 		return Result{}, fmt.Errorf("%w: choose fan 1..3 and duty within the verified minimum..100; use automatic for zero", ErrInvalid)
@@ -361,6 +391,18 @@ func (s *Service) fail(ctx context.Context, reason string) Result {
 		state = "degraded"
 	}
 	s.publish(state, reason+"; "+r.HardwareError+" "+r.StorageError, nil)
+	if s.Config().HDD != nil {
+		status := s.Snapshot().HDD
+		if status == nil {
+			status = &HDDStatus{}
+		}
+		status.State = state
+		status.Reason = reason + "; " + r.HardwareError + " " + r.StorageError
+		status.Target = nil
+		status.Armed = s.hddArmed
+		status.UpdatedAt = time.Now().UTC()
+		s.publishHDD(*status)
+	}
 	return r
 }
 func (s *Service) poll(ctx context.Context) {
@@ -383,6 +425,7 @@ func (s *Service) poll(ctx context.Context) {
 	}
 	if s.latched != "" {
 		s.publish("fallback", s.latched, &r)
+		s.hddPoll(ctx, r)
 		return
 	}
 	c := s.Config()
@@ -395,7 +438,12 @@ func (s *Service) poll(ctx context.Context) {
 				return
 			}
 		}
-		s.publish("manual", "target and RPM observation current", &r)
+		if s.hddArmed {
+			s.hddPoll(ctx, r)
+		} else {
+			s.publish("manual", "target and RPM observation current", &r)
+			s.hddPoll(ctx, r)
+		}
 		return
 	}
 	reason := "monitoring only; configure and verify the board profile before manual control"
@@ -403,4 +451,5 @@ func (s *Service) poll(ctx context.Context) {
 		reason = "verified settings loaded; select a fan and explicitly apply a manual target"
 	}
 	s.publish("monitoring", reason, &r)
+	s.hddPoll(ctx, r)
 }

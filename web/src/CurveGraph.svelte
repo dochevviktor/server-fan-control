@@ -4,12 +4,15 @@
   export let currentTemperature: number | null = null;
   export let target: number | null = null;
   export let readonly = false;
+  export let minimumTemperature = 20;
+  export let maximumTemperature = 100;
+  export let temperatureLimit = 200;
   export let onchange: (index: number, temperature: number, duty: number) => void = () => {};
   let svg: SVGSVGElement;
   let dragging: number | null = null;
   const width = 680, height = 270, left = 48, right = 20, top = 24, bottom = 38;
-  $: minT = Math.min(20, ...points.map(p => p.temperature), currentTemperature ?? 20);
-  $: maxT = Math.max(100, ...points.map(p => p.temperature), currentTemperature ?? 100);
+  $: minT = Math.min(minimumTemperature, ...points.map(p => p.temperature), currentTemperature ?? minimumTemperature);
+  $: maxT = Math.max(maximumTemperature, ...points.map(p => p.temperature), currentTemperature ?? maximumTemperature);
   $: x = (t: number) => left + (t - minT) / (maxT - minT) * (width - left - right);
   const y = (d: number) => height - bottom - d / 100 * (height - top - bottom);
   $: path = points.length ? points.map((p, i) => i === 0 ? `M ${left} ${y(p.duty)} H ${x(p.temperature)}` : kind === 'step' ? `H ${x(p.temperature)} V ${y(p.duty)}` : `L ${x(p.temperature)} ${y(p.duty)}`).join(' ') + ` H ${width-right}` : '';
@@ -21,7 +24,7 @@
     const t = Math.round(minT + (px - left) / (width - left - right) * (maxT - minT));
     const duty = Math.round((height - bottom - py) / (height - top - bottom) * 100);
     const lo = dragging === 0 ? 0 : points[dragging - 1].temperature + 1;
-    const hi = dragging === points.length - 1 ? 200 : points[dragging + 1].temperature - 1;
+    const hi = dragging === points.length - 1 ? temperatureLimit : points[dragging + 1].temperature - 1;
     onchange(dragging, Math.max(lo, Math.min(hi, t)), Math.max(0, Math.min(100, duty)));
   }
   function key(event: KeyboardEvent, i: number) {
@@ -34,7 +37,7 @@
     else if (event.key === 'ArrowLeft') t--;
     else return;
     event.preventDefault();
-    if (t < 0 || t > 200 || d < 0 || d > 100) return;
+    if (t < 0 || t > temperatureLimit || d < 0 || d > 100) return;
     if (i > 0 && t <= points[i - 1].temperature || i + 1 < points.length && t >= points[i + 1].temperature) return;
     onchange(i, t, d);
   }

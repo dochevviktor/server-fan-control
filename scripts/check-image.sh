@@ -22,6 +22,7 @@ fi
     test ! -e /data/config.json
     test ! -e /src
     command -v ipmitool >/dev/null
+    command -v smartctl >/dev/null
     for tool in go gcc cc nvcc node npm; do
         if command -v "$tool" >/dev/null 2>&1; then
             echo "Unexpected runtime tool: $tool" >&2

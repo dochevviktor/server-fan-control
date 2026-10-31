@@ -1,0 +1,12 @@
+# Template only: replace the selected resolved device paths after checking serials
+# and transport on the host. Combine with compose.yaml and compose.ipmi.yaml.
+# A /dev/disk/by-id symlink alone does not grant access to its target.
+services:
+  fan-control:
+    environment:
+      FAN_CONTROL_IPMI_ENABLED: "true"
+      FAN_CONTROL_SMART_ENABLED: "true"
+    devices:
+      - "${FAN_CONTROL_HDD_DEVICE:?Set the resolved device for the selected HDD}:/dev/hdd-selected:rw"
+    # Add other selected drives individually. Validate access/capabilities for
+    # your transport; do not grant privileged mode or map the entire /dev tree.

@@ -6,13 +6,13 @@
   export let onunauthorized: (cause: unknown) => void;
   let snapshot: IPMISnapshot | null = null, saved: IPMISettings | null = null, draft: IPMISettings | null = null;
   let error = '', pollError = '', notice = '', busy = false, polling = false, dirty = false, conflict = false;
-  let fan = 3, duty = 35, now = Date.now();
+  let fan = 3, duty = 35, now = Date.now(), verificationOpen = true;
   const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
   $: verified = !!saved && saved.automatic_verified && saved.mapping_verified && saved.thermal_verified && saved.min_duty >= 1 && saved.profile === 'asrock-e3c246d2i';
   $: identityMatches = !!saved && !!snapshot?.reading?.identity && (['board', 'manufacturer', 'firmware'] as const).every(key => saved!.expected_identity[key] === snapshot!.reading.identity[key]);
   $: targetValid = Number.isInteger(duty) && duty >= (saved?.min_duty || 1) && duty <= 100;
   $: fresh = !!snapshot?.reading?.collected_at && now - Date.parse(snapshot.reading.collected_at) < 30_000;
-  $: canSet = verified && identityMatches && selectedSensor?.status === 'ok' && (selectedSensor?.rpm ?? 0) > 0 && fresh && !dirty && !conflict && !busy && targetValid && ['automatic', 'monitoring', 'manual', 'ready'].includes(snapshot?.state ?? '');
+  $: canSet = verified && identityMatches && selectedSensor?.status === 'ok' && (selectedSensor?.rpm ?? 0) > 0 && fresh && !dirty && !conflict && !busy && targetValid && !snapshot?.hdd?.armed && ['automatic', 'monitoring', 'manual', 'ready'].includes(snapshot?.state ?? '');
   $: selectedSensor = snapshot?.reading?.fans?.find(item => item.name === (saved?.fan_sensors?.[String(fan)] || `FAN${fan}`));
   function profileDraft(value: IPMISettings): IPMISettings { return {...clone(value), fan_sensors:{...(value.fan_sensors ?? {})}}; }
   function readback(value: number | undefined) {
@@ -38,7 +38,7 @@
       snapshot = await api<IPMISnapshot>('/ipmi');
       if (snapshot.enabled) {
         const next = await api<IPMISettings>('/ipmi/config');
-        if (!saved) { saved = next; draft = profileDraft(next); }
+        if (!saved) { saved = next; draft = profileDraft(next); verificationOpen = !(next.automatic_verified && next.mapping_verified && next.thermal_verified && next.min_duty > 0 && next.profile === 'asrock-e3c246d2i'); }
         else if (next.revision > saved.revision) {
           if (dirty) conflict = true;
           else { saved = next; draft = profileDraft(next); conflict = false; }
@@ -122,10 +122,10 @@
         <p class="small muted">Selection uses the verified header-to-command mapping. Changing the selection keeps any previously managed fans at their last target.</p>
         <div class="system-actions"><button class="primary" onclick={apply} disabled={!canSet}>Apply system fan duty</button><button class="automatic" onclick={automatic} disabled={busy}>Restore system fans to automatic</button></div>
         {#if !verified}<p class="small muted">Manual control requires a saved, verified hardware profile below.</p>{:else if !identityMatches}<p class="message warning">The detected board or BMC firmware differs from the verified profile.</p>{:else if dirty}<p class="small muted">Save or discard profile changes before applying a duty.</p>{/if}
-        <p class="small muted">Restore returns all fans owned by this service to automatic. Manual targets are not resumed after restart. HDD temperature curves are a later phase.</p>
+        <p class="small muted">Restore returns all fans owned by this service to automatic. Manual targets are not resumed after restart. Configure an HDD temperature curve below to drive one selected case-fan zone.</p>
       </div>
       {#if draft}
-        <details class="verification" open={!verified}><summary>Hardware profile & verification {dirty ? '· Unsaved changes' : ''}</summary>
+        <details class="verification" bind:open={verificationOpen}><summary>Hardware profile & verification {dirty ? '· Unsaved changes' : ''}</summary>
           <p class="small muted">Confirm these facts from supervised testing of your board and BMC firmware. Saving records your verification; it does not perform a hardware test.</p>
           <label>System fan profile<select bind:value={draft.profile} onchange={edit}><option value="">Monitoring only</option><option value="asrock-e3c246d2i">ASRock Rack E3C246D2I</option></select></label>
           <div class="settings-grid">
@@ -143,8 +143,8 @@
             <label class="checkbox"><input type="checkbox" bind:checked={draft.thermal_verified} onchange={edit}/><span>I verified the minimum duty and cooling of every component affected by these headers, including shared CPU or board cooling.</span></label>
           </div>
           <p class="small muted">The supplied command has eight bytes; this board has three physical headers. Other bytes are preserved. Automatic byte 00 must be verified on your hardware.</p>
-          {#if snapshot.owned_fans?.length}<p class="small muted">Restore owned system fans to automatic before changing the hardware profile.</p>{/if}
-          <div class="system-actions"><button onclick={save} disabled={busy || conflict || !dirty || !!snapshot.owned_fans?.length}>Save system fan profile</button><button class="quiet" onclick={reload} disabled={busy || !dirty}>Discard system fan edits</button></div>
+          {#if snapshot.owned_fans?.length || snapshot.hdd?.armed}<p class="small muted">Restore system fans to automatic before changing the hardware profile.</p>{/if}
+          <div class="system-actions"><button onclick={save} disabled={busy || conflict || !dirty || !!snapshot.owned_fans?.length || !!snapshot.hdd?.armed}>Save system fan profile</button><button class="quiet" onclick={reload} disabled={busy || !dirty}>Discard system fan edits</button></div>
         </details>
       {/if}
     </div>

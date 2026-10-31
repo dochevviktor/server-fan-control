@@ -25,6 +25,7 @@ import (
 
 	"github.com/dochevviktor/server-fan-control/internal/config"
 	"github.com/dochevviktor/server-fan-control/internal/control"
+	"github.com/dochevviktor/server-fan-control/internal/disks"
 )
 
 const cookieName = "fan_control_session"
@@ -50,6 +51,7 @@ type Options struct {
 	AllowedOrigin string
 	Assets        fs.FS
 	IPMI          SystemFans
+	Disks         interface{ Snapshot() disks.Snapshot }
 }
 
 type session struct {
@@ -143,6 +145,15 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, sess session) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/v1/disks":
+		if !onlyGET(w, r) {
+			return
+		}
+		if s.options.Disks == nil {
+			writeJSON(w, http.StatusOK, disks.Snapshot{Samples: []disks.Sample{}})
+		} else {
+			writeJSON(w, http.StatusOK, s.options.Disks.Snapshot())
+		}
 	case "/api/v1/session":
 		switch r.Method {
 		case http.MethodGet:

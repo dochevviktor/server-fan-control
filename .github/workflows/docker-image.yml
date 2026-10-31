@@ -54,11 +54,14 @@ jobs:
       run: sh scripts/check-image.sh server-fan-control:local
     - name: Mock service lifecycle in the runtime container
       run: python3 scripts/smoke-service.py server-fan-control:local
-    - name: Validate GPU Compose example
+    - name: Validate GPU and optional IPMI/SMART Compose examples
       env:
         NVIDIA_GPU_UUID: GPU-ci-placeholder
         FAN_CONTROL_TOKEN_FILE: /tmp/ci-token-placeholder
-      run: docker compose config --quiet
+        FAN_CONTROL_HDD_DEVICE: /dev/ci-hdd-placeholder
+      run: |
+        docker compose config --quiet
+        docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml config --quiet
     - name: Export the tested runtime image
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: docker save server-fan-control:local | gzip > "$RUNNER_TEMP/runtime-image.tar.gz"

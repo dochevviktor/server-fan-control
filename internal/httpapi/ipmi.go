@@ -30,7 +30,7 @@ func (s *Server) routeIPMI(w http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		if controller == nil {
-			writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "state": "disabled", "reason": "Local IPMI is disabled; start with --ipmi to enable monitoring."})
+			writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "state": "disabled", "reason": "Local IPMI is disabled; set FAN_CONTROL_IPMI_ENABLED=true to enable monitoring."})
 		} else {
 			writeJSON(w, http.StatusOK, controller.Snapshot())
 		}

@@ -35,6 +35,9 @@ async function login(page: Page) {
   await expect(page.getByRole('heading',{name:'System fans',exact:true})).toBeVisible();
 }
 async function verifyProfile(page: Page) {
+  if (!await page.getByRole('combobox',{name:'System fan profile',exact:true}).isVisible()) {
+    await page.getByText('Hardware profile & verification',{exact:false}).click();
+  }
   await page.getByRole('combobox',{name:'System fan profile',exact:true}).selectOption('asrock-e3c246d2i');
   await page.getByRole('button',{name:'Use detected board and firmware'}).click();
   await page.getByLabel('System fan minimum duty (%)',{exact:true}).fill('25');

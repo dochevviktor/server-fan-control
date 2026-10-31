@@ -22,6 +22,7 @@ type Settings struct {
 	MappingVerified   bool           `json:"mapping_verified"`
 	ThermalVerified   bool           `json:"thermal_verified"`
 	FanSensors        map[int]string `json:"fan_sensors"`
+	HDD               *HDDPolicy     `json:"hdd,omitempty"`
 }
 
 func DefaultSettings() Settings {
@@ -58,7 +59,7 @@ func ValidateSettings(c Settings) error {
 	if c.MappingVerified && len(c.FanSensors) == 0 {
 		return fmt.Errorf("%w: verified mapping must select at least one sensor", ErrInvalid)
 	}
-	return nil
+	return validateHDD(c)
 }
 
 func (c Settings) ready() bool {
@@ -66,13 +67,14 @@ func (c Settings) ready() bool {
 }
 
 type Snapshot struct {
-	Enabled   bool      `json:"enabled"`
-	Mock      bool      `json:"mock"`
-	State     string    `json:"state"`
-	Reason    string    `json:"reason,omitempty"`
-	Reading   Reading   `json:"reading"`
-	OwnedFans []int     `json:"owned_fans"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Enabled   bool       `json:"enabled"`
+	Mock      bool       `json:"mock"`
+	State     string     `json:"state"`
+	Reason    string     `json:"reason,omitempty"`
+	Reading   Reading    `json:"reading"`
+	OwnedFans []int      `json:"owned_fans"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	HDD       *HDDStatus `json:"hdd,omitempty"`
 }
 
 type Result struct {

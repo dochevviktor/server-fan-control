@@ -3,6 +3,7 @@
   import CurveGraph from './CurveGraph.svelte';
   import HistoryGraph from './HistoryGraph.svelte';
   import SystemFans from './SystemFans.svelte';
+  import HDDControl from './HDDControl.svelte';
   import { api, APIError, setCSRF } from './api';
   import type { AutomaticResult, Config, Curve, GPU, History, Metric, Policy, Status } from './types';
 
@@ -262,6 +263,7 @@
         </div>
       {/if}
       <SystemFans onunauthorized={handleError} />
+      <HDDControl onunauthorized={handleError} />
       <footer><span>Server Fan Control <span class="muted">/ {status?.version || 'MVP'}</span></span><span class="muted">One controller. Explicit ownership.</span></footer>
     </main>
   {/if}
