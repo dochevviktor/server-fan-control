@@ -36,24 +36,24 @@ jobs:
         print(f"Using package version {version} (Git and Docker tag {version}).")
         PYTHON
     - name: Build CGO binary without NVIDIA tooling
-      run: docker build --platform linux/amd64 --target build --tag nvidia-fan-control:build .
+      run: docker build --platform linux/amd64 --target build --tag server-fan-control:build .
     - name: Test and vet in the matching Go builder
       run: |
-        docker run --rm nvidia-fan-control:build go test -race ./...
-        docker run --rm nvidia-fan-control:build go vet ./...
+        docker run --rm server-fan-control:build go test -race ./...
+        docker run --rm server-fan-control:build go vet ./...
     - name: Build runtime image
       env:
         VERSION: ${{ steps.version.outputs.version }}
         SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
       run: |
-        docker build --platform linux/amd64 --tag nvidia-fan-control:local \
+        docker build --platform linux/amd64 --tag server-fan-control:local \
           --label "org.opencontainers.image.version=$VERSION" \
           --label "org.opencontainers.image.revision=$GITHUB_SHA" \
           --label "org.opencontainers.image.source=$SOURCE_URL" .
     - name: Check runtime contents, size and no-GPU startup
-      run: sh scripts/check-image.sh nvidia-fan-control:local
+      run: sh scripts/check-image.sh server-fan-control:local
     - name: Mock service lifecycle in the runtime container
-      run: python3 scripts/smoke-service.py nvidia-fan-control:local
+      run: python3 scripts/smoke-service.py server-fan-control:local
     - name: Validate GPU Compose example
       env:
         NVIDIA_GPU_UUID: GPU-ci-placeholder
@@ -61,7 +61,7 @@ jobs:
       run: docker compose config --quiet
     - name: Export the tested runtime image
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: docker save nvidia-fan-control:local | gzip > "$RUNNER_TEMP/runtime-image.tar.gz"
+      run: docker save server-fan-control:local | gzip > "$RUNNER_TEMP/runtime-image.tar.gz"
     - name: Upload tested image for publishing
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/upload-artifact@v4
@@ -124,8 +124,8 @@ jobs:
       run: |
         gzip --decompress --stdout "$RUNNER_TEMP/runtime-image.tar.gz" | docker load
         image="${REGISTRY}/${IMAGE_NAME,,}"
-        docker tag nvidia-fan-control:local "$image:$VERSION"
-        docker tag nvidia-fan-control:local "$image:latest"
+        docker tag server-fan-control:local "$image:$VERSION"
+        docker tag server-fan-control:local "$image:latest"
     - name: Create Git tag without moving an existing release
       shell: bash
       run: |

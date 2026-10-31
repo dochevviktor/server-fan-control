@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
-	"github.com/dochevviktor/nvidia-fan-control/internal/curve"
-	"github.com/dochevviktor/nvidia-fan-control/internal/gpu"
+	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/curve"
+	"github.com/dochevviktor/server-fan-control/internal/gpu"
 )
 
 const testUUID = "GPU-TEST"

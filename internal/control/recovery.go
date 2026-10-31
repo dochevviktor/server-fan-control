@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
-	"github.com/dochevviktor/nvidia-fan-control/internal/gpu"
+	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/gpu"
 )
 
 // RestorePending is limited to journaled fan ownership. It can recover defaults

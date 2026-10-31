@@ -15,7 +15,7 @@ import urllib.request
 import uuid
 
 engine = os.environ.get('CONTAINER_ENGINE', 'docker')
-image = sys.argv[1] if len(sys.argv) > 1 else 'nvidia-fan-control:local'
+image = sys.argv[1] if len(sys.argv) > 1 else 'server-fan-control:local'
 name = 'fan-control-smoke-' + uuid.uuid4().hex[:12]
 token = 'container-test-only-' + uuid.uuid4().hex
 

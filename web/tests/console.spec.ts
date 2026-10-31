@@ -121,7 +121,7 @@ test('a saved draft survives a real backend restart and remains automatic',async
   await page.getByRole('button',{name:'Save draft',exact:true}).click();
   await expect(page.getByText('Draft saved. Firmware automatic control remains selected.')).toBeVisible();
   const before=await api(page,'/config');
-  const pid=Number(await readFile(process.env.NVIDIA_FAN_E2E_CONTROL_FILE!,'utf8'));
+  const pid=Number(await readFile(process.env.SERVER_FAN_E2E_CONTROL_FILE!,'utf8'));
   process.kill(pid,'SIGUSR2');
   // The original session must disappear, proving this is a new server process.
   await expect.poll(async()=>{

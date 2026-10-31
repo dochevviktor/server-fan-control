@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
-	"github.com/dochevviktor/nvidia-fan-control/internal/curve"
+	"github.com/dochevviktor/server-fan-control/internal/curve"
 	"os"
 	"path/filepath"
 	"sync"

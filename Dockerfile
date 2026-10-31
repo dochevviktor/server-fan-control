@@ -19,16 +19,16 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY --from=frontend /src/internal/web/dist ./internal/web/dist
-RUN go build -trimpath -ldflags="-s -w" -o /out/nvidia-fan-control ./cmd/nvidia-fan-control
+RUN go build -trimpath -ldflags="-s -w" -o /out/server-fan-control ./cmd/server-fan-control
 
 FROM docker.io/library/debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS runtime
 
 # The host NVIDIA Container Toolkit supplies NVML and the selected device nodes.
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
-COPY --from=build /out/nvidia-fan-control /usr/local/bin/nvidia-fan-control
-COPY LICENSE /usr/share/doc/nvidia-fan-control/LICENSE
+COPY --from=build /out/server-fan-control /usr/local/bin/server-fan-control
+COPY LICENSE /usr/share/doc/server-fan-control/LICENSE
 WORKDIR /data
 USER 0:0
-ENTRYPOINT ["/usr/local/bin/nvidia-fan-control"]
+ENTRYPOINT ["/usr/local/bin/server-fan-control"]
 EXPOSE 8080
 CMD ["--config", "/data/config.json", "--listen", "0.0.0.0:8080", "--admin-token-file", "/run/secrets/admin-token"]

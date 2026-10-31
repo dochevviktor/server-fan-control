@@ -1,6 +1,8 @@
-# Codex handover for NVIDIA fan control on TrueNAS
+# Codex handover for Server Fan Control on TrueNAS
 
-Prepared 29 October 2026. Target repository: https://github.com/dochevviktor/nvidia-fan-control
+Prepared 29 October 2026. Target repository: https://github.com/dochevviktor/server-fan-control
+
+Naming updated 31 October 2026: this fork of [ZanMax/nvidia-fan-control](https://github.com/ZanMax/nvidia-fan-control) is now **Server Fan Control**, reflecting the planned IPMI system-fan and HDD-temperature scope. The reviewed snapshots and source permalinks below retain their historical repository names. This handover describes the original plan and baseline; consult the README for current implementation status.
 
 ## 1. Objective and decisions
 
@@ -43,7 +45,7 @@ Start phase 1 and the hardware-independent work in phase 2 immediately. Missing 
 | NVIDIA/go-nvml, existing dependency v0.12.4-1 | 8a7f6b796317a8c7cd5347a25be164108967e7b4 | Tag inspected |
 | NVIDIA/go-nvml, inspected release v0.13.4-1 | 1a1e86da474d340d7cf58274588f4a4afc8772e7 | Tag inspected |
 
-Refresh the target branch before implementation and reconcile any newer changes. Preserve the MIT license and Max Zanoga attribution. The fork's module path still names github.com/ZanMax/nvidia-fan-control; update it consistently to the fork when introducing packages, unless there is a compatibility reason to retain it.
+Refresh the target branch before implementation and reconcile any newer changes. Preserve the MIT license and Max Zanoga attribution. The reviewed fork snapshot's module path named github.com/ZanMax/nvidia-fan-control. The current project uses github.com/dochevviktor/server-fan-control consistently for its module and package imports.
 
 The fork has one Go source file, a JSON configuration, Dockerfile and a build-only GitHub Actions workflow. It has no Compose definition, API, UI or tests. Its README describes native systemd deployment. [R1–R5]
 
@@ -131,14 +133,14 @@ RUN go mod download
 COPY . .
 COPY --from=frontend /src/web/dist ./internal/web/dist
 ENV CGO_ENABLED=1
-RUN mkdir -p /out && go build -trimpath -ldflags="-s -w"     -o /out/nvidia-fan-control ./cmd/nvidia-fan-control
+RUN mkdir -p /out && go build -trimpath -ldflags="-s -w"     -o /out/server-fan-control ./cmd/server-fan-control
 
 FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     && rm -rf /var/lib/apt/lists/*
-COPY --from=backend /out/nvidia-fan-control /usr/local/bin/nvidia-fan-control
+COPY --from=backend /out/server-fan-control /usr/local/bin/server-fan-control
 WORKDIR /data
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/nvidia-fan-control"]
+ENTRYPOINT ["/usr/local/bin/server-fan-control"]
 CMD ["--config", "/data/config.json", "--listen", "0.0.0.0:8080"]
 ~~~
 
@@ -163,7 +165,7 @@ Provide a GPU-only compose.yaml and separate opt-in overrides for IPMI and selec
 ~~~yaml
 services:
   fan-control:
-    image: ghcr.io/dochevviktor/nvidia-fan-control:<published-version>
+    image: ghcr.io/dochevviktor/server-fan-control:<published-version>
     user: "0:0"
     restart: unless-stopped
     read_only: true
@@ -215,7 +217,7 @@ Docker-based TrueNAS Apps starts at 24.10. Document the current Install via YAML
 
 | Location | Responsibility |
 | --- | --- |
-| cmd/nvidia-fan-control | CLI, dependency wiring, lifecycle and signals. |
+| cmd/server-fan-control | CLI, dependency wiring, lifecycle and signals. |
 | internal/config | Schema, migration, validation, atomic persistence and revisions. |
 | internal/curve | Pure step/linear curve evaluation and controller math. |
 | internal/control | Mode/state ownership, scheduling, safety overrides and reconciliation. |
@@ -512,7 +514,7 @@ Unresolved hardware details must result in diagnostics and monitor-only behavior
 
 ## 10. Pasteable starting instruction for Codex
 
-> Work in dochevviktor/nvidia-fan-control and implement the first GPU release described in this handover. Recheck the current repository against reviewed commit 9491b8dd8c206cf0c0c10a25910a7a4f0dca2900 and preserve unrelated changes and upstream license attribution.
+> Work in dochevviktor/server-fan-control and implement the first GPU release described in this handover. Recheck the current repository against reviewed commit 9491b8dd8c206cf0c0c10a25910a7a4f0dca2900 and preserve unrelated changes and upstream license attribution.
 >
 > First replace both CUDA stages with an official Go builder using CGO and a matching Debian slim runtime. Remove the image-installed NVIDIA driver package and forced library path. Add persistent configuration, a GPU-only Compose example and measurable image-size validation. Use the host NVIDIA runtime with utility capability.
 >

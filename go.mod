@@ -1,4 +1,4 @@
-module github.com/dochevviktor/nvidia-fan-control
+module github.com/dochevviktor/server-fan-control
 
 go 1.20
 

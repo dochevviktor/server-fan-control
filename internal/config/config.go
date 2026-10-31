@@ -6,7 +6,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/curve"
+	"github.com/dochevviktor/server-fan-control/internal/curve"
 )
 
 type Config struct {

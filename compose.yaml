@@ -1,6 +1,6 @@
 services:
   fan-control:
-    image: ${FAN_CONTROL_IMAGE:-nvidia-fan-control:local}
+    image: ${FAN_CONTROL_IMAGE:-server-fan-control:local}
     platform: linux/amd64
     user: "0:0"
     read_only: true

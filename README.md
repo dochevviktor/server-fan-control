@@ -1,6 +1,8 @@
-# NVIDIA Fan Control
+# Server Fan Control
 
-A small Linux service with a Svelte dashboard for NVIDIA GPU telemetry and editable fan curves. Go owns NVML, configuration and the HTTP API; the UI is embedded in the binary. CUDA and packaged NVIDIA drivers are absent from the runtime image.
+A small Linux service for server cooling, currently providing a Svelte dashboard for NVIDIA GPU telemetry and editable fan curves. Go owns NVML, configuration and the HTTP API; the UI is embedded in the binary. CUDA and packaged NVIDIA drivers are absent from the runtime image.
+
+This project began as a fork of [Max Zanoga’s NVIDIA Fan Control](https://github.com/ZanMax/nvidia-fan-control). The `server-fan-control` name reflects the planned expansion to IPMI system fans and HDD-temperature curves; those features are not implemented yet. The upstream MIT license and attribution are retained.
 
 New GPUs remain in firmware automatic mode. Saving a draft does not activate it. Applying a curve explicitly selects a GPU by UUID and requires confirmation of that hardware's minimum fan duty and critical temperature. Unsupported and passively cooled GPUs remain visible for monitoring.
 
@@ -12,7 +14,7 @@ Requires Linux, Go 1.20 or later, a C compiler, Node 24 and npm. Container build
 
 ```bash
 make build
-./bin/nvidia-fan-control --mock --dev-no-auth \
+./bin/server-fan-control --mock --dev-no-auth \
   --listen 127.0.0.1:8080 --config data/mock/config.json
 ```
 
@@ -25,7 +27,7 @@ For authenticated local use, create a secret and omit `--dev-no-auth`:
 ```bash
 mkdir -p secrets
 (umask 077; openssl rand -hex 32 > secrets/admin-token)
-./bin/nvidia-fan-control --mock --config data/mock/config.json \
+./bin/server-fan-control --mock --config data/mock/config.json \
   --admin-token-file secrets/admin-token
 ```
 
@@ -36,9 +38,9 @@ Enter the contents of the secret file in the login form. The server exchanges it
 Build Linux amd64 without a GPU or NVIDIA driver:
 
 ```bash
-docker build --platform linux/amd64 -t nvidia-fan-control:local .
-sh scripts/check-image.sh nvidia-fan-control:local
-python3 scripts/smoke-service.py nvidia-fan-control:local
+docker build --platform linux/amd64 -t server-fan-control:local .
+sh scripts/check-image.sh server-fan-control:local
+python3 scripts/smoke-service.py server-fan-control:local
 ```
 
 The multi-stage build uses Node for the Svelte bundle, an official Go/CGO builder, and Debian Trixie slim at runtime. The Go and Debian stages use matching Debian generations. All base images are pinned by digest; refresh pins and rerun checks together. The NVML dependency remains `v0.12.4-1`.
@@ -58,7 +60,7 @@ docker compose config
 docker compose up -d
 ```
 
-The default image is `nvidia-fan-control:local`; `FAN_CONTROL_IMAGE` can select an image you have published. Compose uses a root process, a read-only root filesystem, a writable **directory** mounted at `/data`, and a read-only secret file. The data directory must remain writable for atomic configuration updates and the recovery journal. No configuration or secrets are baked into the image. Logs go to stdout/stderr.
+The default image is `server-fan-control:local`; `FAN_CONTROL_IMAGE` can select an image you have published. Compose uses a root process, a read-only root filesystem, a writable **directory** mounted at `/data`, and a read-only secret file. The data directory must remain writable for atomic configuration updates and the recovery journal. No configuration or secrets are baked into the image. Logs go to stdout/stderr.
 
 HTTP is published only on `127.0.0.1:8080` by default. For remote access, use an HTTPS reverse proxy on the chosen management network and add these command arguments in Compose:
 
@@ -77,7 +79,7 @@ Only one process should control each physical GPU. The data-directory lock preve
 ```bash
 docker run --rm --read-only --gpus "device=${NVIDIA_GPU_UUID}" \
   -e NVIDIA_DRIVER_CAPABILITIES=utility \
-  nvidia-fan-control:local --diagnose
+  server-fan-control:local --diagnose
 ```
 
 This command initializes NVML, reads UUID/name/temperature, shuts down NVML and exits without fan writes or configuration access. Compare its output with host `nvidia-smi`. The service stays available with a visible adapter error when real NVML is unavailable; it never substitutes mock telemetry. The diagnostic instead returns a nonzero exit status on a required read/initialization failure.
@@ -136,9 +138,9 @@ Install Playwright Chromium first with `cd web && npx playwright install chromiu
 
 ## Image publishing
 
-[Docker Image CI and Publish](.github/workflows/docker-image.yml) runs the Go/container and browser checks on pull requests and pushes to `main`. Pull requests never publish. After both jobs pass on `main`, the publish job loads the exact tested image artifact and publishes Linux amd64 images to `ghcr.io/dochevviktor/nvidia-fan-control:<version>` and `:latest` using `GITHUB_TOKEN`. The version comes from `web/package.json` (currently `0.1.0`); `latest` is updated only if the tested commit is still the head of `main`, so an older rerun cannot roll it back.
+[Docker Image CI and Publish](.github/workflows/docker-image.yml) runs the Go/container and browser checks on pull requests and pushes to `main`. Pull requests never publish. After both jobs pass on `main`, the publish job loads the exact tested image artifact and publishes Linux amd64 images to `ghcr.io/dochevviktor/server-fan-control:<version>` and `:latest` using `GITHUB_TOKEN`. The version comes from `web/package.json` (currently `0.1.1`); `latest` is updated only if the tested commit is still the head of `main`, so an older rerun cannot roll it back.
 
-The workflow creates a matching annotated Git tag, such as `0.1.0`. An existing tag must point to the same commit; otherwise publication fails before pushing images. Bump the version for each new release, updating both package files with `npm --prefix web version patch --no-git-tag-version` (or `minor`/`major`) and commit them. Rerunning the same tagged commit is allowed. Image artifacts are retained for seven days; after expiry, rerun all jobs to rebuild and validate the image before publishing. Versions must fit Docker's tag syntax; SemVer `+build` metadata is rejected.
+The workflow creates a matching annotated Git tag, such as `0.1.1`. An existing tag must point to the same commit; otherwise publication fails before pushing images. Bump the version for each new release, updating both package files with `npm --prefix web version patch --no-git-tag-version` (or `minor`/`major`) and commit them. Rerunning the same tagged commit is allowed. Image artifacts are retained for seven days; after expiry, rerun all jobs to rebuild and validate the image before publishing. Versions must fit Docker's tag syntax; SemVer `+build` metadata is rejected.
 
 Only the publish job has `contents: write` and `packages: write`; the other jobs keep read-only repository permissions. Repository/package policies must allow the workflow token to create tags and publish the package. No personal access token is required for normal repository-owned GHCR publishing. Make the GHCR package public if the NAS should pull anonymously, or configure registry credentials for a private package. The workflow does not deploy the application.
 
@@ -159,8 +161,8 @@ The GPU MVP measured **89,370,325 bytes (85.23 MiB) unpacked** on 30 October 202
 Phase 1 measured the unchanged CUDA image at **2,423,705,886 bytes (2311.43 MiB)** and the diagnostic-only Debian image at **84,928,386 bytes (80.99 MiB)** using rootless Podman 5.8.4 on Linux amd64. These are unpacked `.Size` measurements, not compressed transfer sizes. The GPU MVP adds the embedded UI and HTTP service; measure it with:
 
 ```bash
-docker image inspect nvidia-fan-control:local --format '{{.Os}}/{{.Architecture}} {{.Size}} bytes'
-sh scripts/check-image.sh nvidia-fan-control:local
+docker image inspect server-fan-control:local --format '{{.Os}}/{{.Architecture}} {{.Size}} bytes'
+sh scripts/check-image.sh server-fan-control:local
 ```
 
 The script enforces the 150 MiB unpacked budget, excludes runtime compilers/CUDA/packaged drivers, checks direct linked libraries, and checks diagnostic failure without NVML. `ldd` alone cannot verify dynamically loaded NVML. Set `CONTAINER_ENGINE=podman` to use Podman.

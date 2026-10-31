@@ -178,10 +178,10 @@
   });
 </script>
 
-<svelte:head><title>NVIDIA Fan Control · GPU console</title></svelte:head>
+<svelte:head><title>Server Fan Control · GPU console</title></svelte:head>
 <div class="app-shell">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="NVIDIA Fan Control home"><span class="brand-icon" aria-hidden="true">✣</span><span>FAN CONTROL<small>NVIDIA GPU CONSOLE</small></span></a>
+    <a class="brand" href="/" aria-label="Server Fan Control home"><span class="brand-icon" aria-hidden="true">✣</span><span>SERVER FAN CONTROL<small>NVIDIA GPU CONSOLE</small></span></a>
     <div class="topbar-right">
       {#if status?.mock}<span class="badge mock">MOCK HARDWARE</span>{/if}
       <span class="connection"><i class:online={authenticated && status?.available && !pollError}></i>{authenticated ? status?.available ? 'Controller online' : 'Controller unavailable' : 'Local hardware service'}</span>
@@ -260,7 +260,7 @@
           </aside>
         </div>
       {/if}
-      <footer><span>NVIDIA Fan Control <span class="muted">/ {status?.version || 'MVP'}</span></span><span class="muted">One controller. Explicit ownership.</span></footer>
+      <footer><span>Server Fan Control <span class="muted">/ {status?.version || 'MVP'}</span></span><span class="muted">One controller. Explicit ownership.</span></footer>
     </main>
   {/if}
 </div>

@@ -12,8 +12,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
-	"github.com/dochevviktor/nvidia-fan-control/internal/control"
+	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/control"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef"

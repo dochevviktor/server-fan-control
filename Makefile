@@ -5,7 +5,7 @@ frontend:
 	npm --prefix web run build
 build: frontend
 	mkdir -p bin
-	CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o bin/nvidia-fan-control ./cmd/nvidia-fan-control
+	CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o bin/server-fan-control ./cmd/server-fan-control
 test: frontend
 	CGO_ENABLED=1 go test -race ./...
 	CGO_ENABLED=1 go vet ./...

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/config"
 )
 
 type fanKey struct {

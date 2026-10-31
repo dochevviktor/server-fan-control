@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-process.env.NVIDIA_FAN_E2E_CONTROL_FILE ??= join(tmpdir(), `nvidia-fan-e2e-${process.pid}.pid`);
+process.env.SERVER_FAN_E2E_CONTROL_FILE ??= join(tmpdir(), `server-fan-e2e-${process.pid}.pid`);
 
 export default defineConfig({
   testDir: './tests',

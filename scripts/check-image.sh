@@ -2,7 +2,7 @@
 # Hardware-independent checks; deliberately do not request a GPU.
 set -eu
 engine=${CONTAINER_ENGINE:-docker}
-image=${1:-nvidia-fan-control:local}
+image=${1:-server-fan-control:local}
 
 size=$("$engine" image inspect "$image" --format '{{.Size}}')
 awk -v bytes="$size" 'BEGIN { printf "Unpacked image: %s bytes (%.2f MiB)\n", bytes, bytes / 1048576 }'
@@ -31,7 +31,7 @@ fi
         echo "Unexpected CUDA, driver or Node package in runtime" >&2
         exit 1
     fi
-    dependencies=$(ldd /usr/local/bin/nvidia-fan-control)
+    dependencies=$(ldd /usr/local/bin/server-fan-control)
     printf "%s\n" "$dependencies"
     if printf "%s\n" "$dependencies" | grep -q "not found"; then
         exit 1

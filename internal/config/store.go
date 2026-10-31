@@ -11,7 +11,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/curve"
+	"github.com/dochevviktor/server-fan-control/internal/curve"
 )
 
 var ErrConflict = errors.New("configuration revision conflict")

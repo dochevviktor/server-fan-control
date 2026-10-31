@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
-	"github.com/dochevviktor/nvidia-fan-control/internal/control"
+	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/control"
 )
 
 const cookieName = "fan_control_session"

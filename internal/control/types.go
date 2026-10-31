@@ -3,7 +3,7 @@ package control
 
 import (
 	"errors"
-	"github.com/dochevviktor/nvidia-fan-control/internal/gpu"
+	"github.com/dochevviktor/server-fan-control/internal/gpu"
 	"time"
 )
 

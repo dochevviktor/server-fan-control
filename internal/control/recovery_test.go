@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/config"
 )
 
 func TestRecoveryDoesNotNeedValidConfiguration(t *testing.T) {

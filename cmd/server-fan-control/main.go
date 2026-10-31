@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/dochevviktor/nvidia-fan-control/internal/config"
-	"github.com/dochevviktor/nvidia-fan-control/internal/control"
-	"github.com/dochevviktor/nvidia-fan-control/internal/gpu"
-	"github.com/dochevviktor/nvidia-fan-control/internal/httpapi"
-	webassets "github.com/dochevviktor/nvidia-fan-control/internal/web"
+	"github.com/dochevviktor/server-fan-control/internal/config"
+	"github.com/dochevviktor/server-fan-control/internal/control"
+	"github.com/dochevviktor/server-fan-control/internal/gpu"
+	"github.com/dochevviktor/server-fan-control/internal/httpapi"
+	webassets "github.com/dochevviktor/server-fan-control/internal/web"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 	}
 }
 func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (runError error) {
-	f := flag.NewFlagSet("nvidia-fan-control", flag.ContinueOnError)
+	f := flag.NewFlagSet("server-fan-control", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	configPath := f.String("config", "data/config.json", "persistent configuration path (legacy JSON migrates to a draft)")
 	diagnose := f.Bool("diagnose", false, "read GPU identity and temperature once without changing fan settings")
