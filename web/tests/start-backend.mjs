@@ -13,7 +13,7 @@ let server, stopping=false, restarting=false;
 const controlFile=process.env.SERVER_FAN_E2E_CONTROL_FILE;
 if(controlFile) writeFileSync(controlFile,String(process.pid),{mode:0o600});
 function start() {
-  server=spawn(binary,['--mock','--listen','127.0.0.1:18080','--config',join(temporary,'config.json'),'--admin-token-file',tokenFile],{stdio:'inherit'});
+  server=spawn(binary,['--mock','--ipmi','--listen','127.0.0.1:18080','--config',join(temporary,'config.json'),'--admin-token-file',tokenFile],{stdio:'inherit'});
   server.on('exit',code=>{
     if(restarting && !stopping) { restarting=false; start(); return; }
     rmSync(temporary,{recursive:true,force:true});

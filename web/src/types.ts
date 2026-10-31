@@ -9,3 +9,10 @@ export interface Policy { mode: 'automatic' | 'curve'; curve: string; fans: numb
 export interface Config { schema_version: number; revision: number; sampling_seconds: number; freshness_seconds: number; failure_limit: number; curves: Record<string, Curve>; gpus: Record<string, Policy> }
 export interface History { at: string; temperature_c: number | null; desired_duty: number | null }
 export interface AutomaticResult { uuid: string; restored: boolean; persisted: boolean; hardware_error: string; storage_error: string; revision: number }
+
+export interface IPMIIdentity { board: string; manufacturer: string; firmware: string }
+export interface IPMIFan { name: string; rpm: number | null; status: string; reason?: string }
+export interface IPMIReading { identity: IPMIIdentity; fans: IPMIFan[]; duties: number[]; collected_at: string }
+export interface IPMISnapshot { enabled: boolean; mock: boolean; state: string; reason?: string; reading: IPMIReading; owned_fans: number[]; updated_at: string }
+export interface IPMISettings { schema_version: number; revision: number; profile: string; expected_identity: IPMIIdentity; min_duty: number; automatic_verified: boolean; mapping_verified: boolean; thermal_verified: boolean; fan_sensors: Record<string, string> }
+export interface IPMIResult { applied?: boolean; restored?: boolean; persisted?: boolean; hardware_error?: string; storage_error?: string; error?: string }

@@ -49,6 +49,7 @@ type Options struct {
 	// TLS. Forwarded headers are deliberately not trusted to set this value.
 	AllowedOrigin string
 	Assets        fs.FS
+	IPMI          SystemFans
 }
 
 type session struct {
@@ -138,6 +139,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request, sess session) {
+	if s.routeIPMI(w, r) {
+		return
+	}
 	switch r.URL.Path {
 	case "/api/v1/session":
 		switch r.Method {

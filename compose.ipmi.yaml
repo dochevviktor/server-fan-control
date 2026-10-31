@@ -1,0 +1,16 @@
+# Opt in with: docker compose -f compose.yaml -f compose.ipmi.yaml up -d
+# The TrueNAS host must already expose a working local OpenIPMI device.
+services:
+  fan-control:
+    devices:
+      - /dev/ipmi0:/dev/ipmi0:rw
+    # Compose replaces command lists. Include any public-origin/cookie options
+    # from your deployment here as well.
+    command:
+      - --config
+      - /data/config.json
+      - --listen
+      - 0.0.0.0:8080
+      - --admin-token-file
+      - /run/secrets/admin-token
+      - --ipmi

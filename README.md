@@ -2,11 +2,11 @@
 
 A small Linux service for server cooling, currently providing a Svelte dashboard for NVIDIA GPU telemetry and editable fan curves. Go owns NVML, configuration and the HTTP API; the UI is embedded in the binary. CUDA and packaged NVIDIA drivers are absent from the runtime image.
 
-This project began as a fork of [Max Zanoga’s NVIDIA Fan Control](https://github.com/ZanMax/nvidia-fan-control). The `server-fan-control` name reflects the planned expansion to IPMI system fans and HDD-temperature curves; those features are not implemented yet. The upstream MIT license and attribution are retained.
+This project began as a fork of [Max Zanoga’s NVIDIA Fan Control](https://github.com/ZanMax/nvidia-fan-control). The `server-fan-control` name reflects the planned expansion to IPMI system fans and HDD-temperature curves; local IPMI monitoring and a guarded ASRock actuator are now available; HDD-temperature curves remain a later phase. The upstream MIT license and attribution are retained.
 
 New GPUs remain in firmware automatic mode. Saving a draft does not activate it. Applying a curve explicitly selects a GPU by UUID and requires confirmation of that hardware's minimum fan duty and critical temperature. Unsupported and passively cooled GPUs remain visible for monitoring.
 
-The GPU MVP includes software tests and a mock mode. **Real fan writes, reset behavior, permissions and thermal response still require supervised validation on your target GPU/TrueNAS host.** IPMI and disk-temperature control are later phases.
+The GPU MVP includes software tests and a mock mode. **Real fan writes, reset behavior, permissions and thermal response still require supervised validation on your target GPU/TrueNAS host.** Local IPMI is opt-in and remains monitoring-only until a board-specific verification record is saved. Disk-temperature control remains a later phase.
 
 ## Try the dashboard without hardware
 
@@ -112,6 +112,57 @@ Rising demand increases immediately. Step cooling must cross the active lower bo
 
 Metrics include nullable value, unit, collection time, last-success time and status/reason. Polling the API does not manufacture new samples. Reported NVML fan percentages are intended operating speeds, not independent proof of rotation, and can exceed 100%; requested duties remain 0–100. RPM is not exposed by this pinned adapter. Unsupported optional NVML symbols and sensor/permission errors remain visible. History is in-memory and bounded to roughly 30 minutes; it resets when the process restarts.
 
+## Optional local IPMI and ASRock system fans
+
+Enable local IPMI independently of the GPU loop:
+
+```bash
+docker compose -f compose.yaml -f compose.ipmi.yaml up -d
+```
+
+The override adds `--ipmi` and maps only `/dev/ipmi0`. The host must already have a working OpenIPMI device; no host drivers are installed by this app. The runtime includes `ipmitool`, invokes it with `-I open`, and needs no BMC network credentials. Keep any reverse-proxy arguments in the override's complete `command` list. Native users can install `ipmitool` and add `--ipmi`. Missing IPMI hardware is reported as unavailable; it never becomes simulated data. `--mock --ipmi` simulates both adapters without accessing hardware.
+
+Start with the read-only diagnostic, which needs neither a configuration nor an admin token:
+
+```bash
+docker run --rm --read-only --device /dev/ipmi0:/dev/ipmi0:rw \
+  server-fan-control:local --diagnose-ipmi
+# Or, on a native development installation:
+./bin/server-fan-control --diagnose-ipmi
+```
+
+It reports built-in FRU board identity, BMC firmware, fan sensor RPM and collection time. On the recognized ASRock Rack E3C246D2I only, it also reads the eight OEM bytes. Unsupported boards expose monitoring without OEM fan commands. The adapter runs fixed arguments with a three-second timeout per subprocess, bounded stdout/stderr, and an overall operation deadline. There is no arbitrary command or raw-IPMI API. Fan polling runs every 15 seconds on an independent worker; it cannot hold up GPU thermal decisions.
+
+The first profile is `asrock-e3c246d2i`, based on the owner's ASRock support instructions:
+
+```text
+READ: ipmitool raw 0x3a 0x02
+SET:  ipmitool raw 0x3a 0x01 00 00 35 00 00 00 00 00
+```
+
+**Bare `35` is decimal 35 (hexadecimal `0x23`), while `0x35` is decimal 53.** This follows ipmitool's [base-0 numeric parsing](https://github.com/ipmitool/ipmitool/blob/master/lib/helper.c). The app accepts percentage numbers and emits explicitly encoded hexadecimal bytes. It reads all eight bytes, replaces the selected byte, writes the complete vector and checks every byte on readback, preserving the other seven settings. Another writer could still race a read/write; only one controller may own the BMC fans.
+
+The [board manual](https://download.asrock.com/Manual/E3C246D2I.pdf) lists FAN1 (CPU), FAN2 (front) and FAN3 (rear). Eight protocol bytes do **not** prove eight physical headers. This profile offers FAN1–FAN3, provisionally mapped to payload slots 1–3; the supplied example uses slot 3. The sensor name for each header is configurable, defaulting to `FAN1`, `FAN2`, `FAN3`. Verify the physical header/slot/sensor correspondence on your host. OEM zero as automatic, percentage scaling and the returned eight-byte format must also be checked against the actual BMC firmware. They have **not been validated on real hardware in this workspace**.
+
+The System fans panel starts in monitoring mode. Before enabling manual targets, save a verification record containing the exact discovered board/manufacturer/firmware, the selected profile, a tested minimum duty and explicit confirmations that header mapping, automatic restoration and shared-component cooling have been validated. In particular, establish a known-good restoration procedure before any application takeover. Do not mark these confirmations based only on an API readback. A firmware or board change invalidates writes against the record. The safe minimum applies to every selected header; use a floor safe for all headers you intend to control. Settings cannot change while fans are owned: restore automatic first.
+
+After verification, select a header and a duty between the verified floor and 100%, then apply a manual target. The UI shows raw duty readback separately from RPM. RPM confirms a sensor reading, not a particular duty percentage or safe thermal response. A selected sensor must report healthy positive RPM; missing/failed sensors, lost duty readback or changed identity cause latched fallback and attempted automatic restoration. Targets are for supervised operation in this phase: there is no HDD curve or CPU/HBA thermal guard yet.
+
+**Return owned fans to automatic** writes zero only to headers taken over by this application, verifies readback, and reports hardware and journal persistence outcomes separately. Manual targets are not saved for automatic reapplication. The service journals verified identity and ownership before takeover, restores on failures and graceful shutdown, and recovers outstanding ownership at startup. Removing `--ipmi` still attempts recovery if an IPMI ownership journal exists; retain device access until restoration succeeds. SIGKILL, OOM, host failure and BMC failure can prevent restoration; restart recovery is not a hardware lease.
+
+IPMI verification settings live in `ipmi.json` beside the main GPU configuration (`ipmi.mock.json` in mock mode). They have their own schema/revision, last-good backup and pending-transaction rollback under the same data-directory lock. Their ownership journal uses `.ownership.json` (or `.ownership.mock.json`) appended to that path. Keep these files with the persistent directory and never remove a pending journal to hide an error. Keeping separate settings and workers allows IPMI operations without waiting on GPU hardware calls.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/ipmi` | Enabled/mock state, identity, fan sensors, raw duty bytes, data age and ownership |
+| `GET /api/v1/ipmi/config`, `PUT /api/v1/ipmi/config` | Verification settings with their own quoted revision/If-Match |
+| `POST /api/v1/ipmi/target` | Apply `{ "fan": 3, "duty": 35 }` after verification |
+| `POST /api/v1/ipmi/default` | Restore all owned headers; no revision precondition |
+
+These endpoints use the existing session, Origin and CSRF protection. Configuration saves never issue manual commands. A successful HTTP response to a target/default request still requires checking `applied`/`restored`, `persisted`, `hardware_error` and `storage_error`. A timeout can leave an operation finishing in the worker; refresh status before retrying.
+
+Target-host acceptance remains outstanding: record TrueNAS/BMC versions and read-only output; establish byte encoding and physical FAN3 mapping; verify the safe floor under load, automatic restoration, SIGTERM and restart recovery. Do not infer unattended thermal safety from the software tests. HDD sensing and automatic curves are phase 4.
+
 ## API and development
 
 The production UI and API share one origin. During frontend development, `npm --prefix web run dev` proxies `/api` to `127.0.0.1:8080`; start the Go service separately and use `--public-origin http://127.0.0.1:5173` when opening the Vite origin.
@@ -127,7 +178,7 @@ The production UI and API share one origin. During frontend development, `npm --
 | `POST /api/v1/gpus/{uuid}/default` | Restore automatic; return hardware/storage outcomes |
 | `GET /api/v1/history?uuid=…` | Bounded history for one GPU |
 
-All `/api` routes except login require a session. Mutations require a matching Origin and `X-CSRF-Token`. PUT config requires quoted `If-Match` and the same body revision: missing preconditions return 428, conflicts 412, invalid policies 400. Default restoration does not require an ETag and returns its separate outcomes even when persistence fails. HTTP mutations wait up to 10 seconds. A 503 timeout can mean an already-started hardware operation is still running; refresh status before retrying. IPMI and disk endpoints are not implemented in this phase.
+All `/api` routes except login require a session. Mutations require a matching Origin and `X-CSRF-Token`. PUT config requires quoted `If-Match` and the same body revision: missing preconditions return 428, conflicts 412, invalid policies 400. Default restoration does not require an ETag and returns its separate outcomes even when persistence fails. HTTP mutations wait up to 10 seconds. A 503 timeout can mean an already-started hardware operation is still running; refresh status before retrying. IPMI uses the separate worker and endpoints described above. Disk endpoints remain a later phase.
 
 ```bash
 make test                 # frontend check/build, Go race tests and vet
@@ -155,6 +206,8 @@ Use Docker-based TrueNAS Apps (24.10 or later). **No TrueNAS release or real GPU
 5. First run the read-only diagnostic and compare telemetry. Under supervision, verify each selected physical fan accepts a conservative target, Return to automatic resets it, and SIGTERM/restart restores ownership correctly. Confirm no other software owns the same fans. Validate thermal response and failure scenarios before unattended operation.
 
 ## Image measurements
+
+Phase 3 measured **105,241,879 bytes (100.37 MiB) unpacked** on 31 October 2026 with rootless Podman, Linux amd64. Go race tests/vet, frontend type checking/build, all 13 browser tests, Compose validation, image-content checks and packaged mock GPU/IPMI lifecycle tests passed. Four IPMI browser tests were rerun after final UI refinements. The packaged tests exercise FAN3 target/readback, automatic reset, SIGTERM ownership cleanup and recreation without resuming a manual IPMI target. The image remains below the 150 MiB budget. No real GPU/BMC actuation or TrueNAS host acceptance was performed for this phase.
 
 The GPU MVP measured **89,370,325 bytes (85.23 MiB) unpacked** on 30 October 2026 with rootless Podman 5.8.4, Linux amd64. Frontend type checking/build, nine Playwright tests, Go race tests/vet (including in the pinned Go builder), image-content/size checks, and container mock lifecycle tests passed. The container tests exercised authentication, both-fan apply, SIGTERM restoration, recreation and persisted automatic mode. UI failure-presentation fixtures supplement mocked-controller failure tests; none of these are real GPU actuation results. Docker Engine CI and target-host hardware/TrueNAS acceptance remain unrun here.
 

@@ -23,6 +23,9 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/server-fan-control ./cmd/server-
 
 FROM docker.io/library/debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS runtime
 
+RUN apt-get update && apt-get install -y --no-install-recommends ipmitool \
+    && rm -rf /var/lib/apt/lists/*
+
 # The host NVIDIA Container Toolkit supplies NVML and the selected device nodes.
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 COPY --from=build /out/server-fan-control /usr/local/bin/server-fan-control

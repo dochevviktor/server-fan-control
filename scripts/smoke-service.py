@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
         command('run', '-d', '--name', name, '--read-only',
                 '-p', '127.0.0.1::8080', '-v', f'{data}:/data:Z',
                 '-v', f'{secret}:/run/secrets/admin-token:ro,Z', image,
-                '--mock', '--listen', '0.0.0.0:8080', '--config', '/data/config.json',
+                '--mock', '--ipmi', '--listen', '0.0.0.0:8080', '--config', '/data/config.json',
                 '--admin-token-file', '/run/secrets/admin-token')
         port = command('port', name, '8080/tcp').rsplit(':', 1)[1]
         base = f'http://127.0.0.1:{port}'
@@ -77,6 +77,12 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
             time.sleep(0.1)
         else:
             raise AssertionError('mock telemetry did not become available')
+        for _ in range(100):
+            if request('/ipmi')['state'] == 'monitoring':
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError('mock IPMI telemetry did not become available')
         return request
 
     def stop_and_remove():
@@ -94,10 +100,24 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
             with copied.extractfile(member) as journal_file:
                 journal = json.load(journal_file)
         assert journal['fans'] == {}, 'SIGTERM did not clear restored ownership'
+        ipmi_journal = 'ipmi.mock.json.ownership.mock.json'
+        archive = subprocess.check_output([engine, 'cp', f'{name}:/data/{ipmi_journal}', '-'])
+        with tarfile.open(fileobj=io.BytesIO(archive)) as copied:
+            with copied.extractfile(ipmi_journal) as journal_file:
+                assert json.load(journal_file)['fans'] == {}, 'IPMI ownership not restored at SIGTERM'
         command('rm', name)
 
     try:
         request = launch()
+        bmc = request('/ipmi')
+        assert bmc['enabled'] and bmc['mock'] and len(bmc['reading']['duties']) == 8
+        settings = request('/ipmi/config')
+        settings.update(profile='asrock-e3c246d2i', expected_identity=bmc['reading']['identity'],
+                        min_duty=20, automatic_verified=True, mapping_verified=True, thermal_verified=True)
+        ipmi_saved = request('/ipmi/config', 'PUT', settings, settings['revision'])
+        result = request('/ipmi/target', 'POST', {'fan': 3, 'duty': 35})
+        assert result['applied'] and result['persisted']
+        assert request('/ipmi')['reading']['duties'] == [0, 0, 35, 0, 0, 0, 0, 0]
         cfg = request('/config')
         cfg['gpus']['GPU-MOCK-001'] = {
             'mode': 'curve', 'curve': 'Balanced', 'fans': [], 'min_duty': 20,
@@ -112,6 +132,12 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
         stop_and_remove()
 
         request = launch()
+        assert request('/ipmi/config')['revision'] == ipmi_saved['revision']
+        assert request('/ipmi')['owned_fans'] == [], 'manual targets resumed after recreation'
+        assert request('/ipmi/target', 'POST', {'fan': 3, 'duty': 40})['applied']
+        auto = request('/ipmi/default', 'POST', {})
+        assert auto['restored'] and auto['persisted']
+        assert request('/ipmi')['reading']['duties'] == [0] * 8
         assert request('/config')['revision'] == saved['revision'], 'configuration did not survive recreation'
         assert request('/gpus')['gpus'][0]['state'] == 'curve'
         result = request('/gpus/GPU-MOCK-001/default', 'POST', {})
@@ -123,6 +149,6 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
         assert request('/config')['gpus']['GPU-MOCK-001']['mode'] == 'automatic'
         assert request('/gpus')['gpus'][0]['state'] == 'automatic'
         stop_and_remove()
-        print('Container mock smoke passed: embedded UI, authentication, both fans, SIGTERM restoration, recreation and persistent automatic mode.')
+        print('Container mock smoke passed: embedded UI, authentication, GPU/IPMI targets, readback, SIGTERM restoration, recreation and automatic mode.')
     finally:
         subprocess.run([engine, 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

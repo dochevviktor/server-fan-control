@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import CurveGraph from './CurveGraph.svelte';
   import HistoryGraph from './HistoryGraph.svelte';
+  import SystemFans from './SystemFans.svelte';
   import { api, APIError, setCSRF } from './api';
   import type { AutomaticResult, Config, Curve, GPU, History, Metric, Policy, Status } from './types';
 
@@ -178,10 +179,10 @@
   });
 </script>
 
-<svelte:head><title>Server Fan Control · GPU console</title></svelte:head>
+<svelte:head><title>Server Fan Control · Cooling console</title></svelte:head>
 <div class="app-shell">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Server Fan Control home"><span class="brand-icon" aria-hidden="true">✣</span><span>SERVER FAN CONTROL<small>NVIDIA GPU CONSOLE</small></span></a>
+    <a class="brand" href="/" aria-label="Server Fan Control home"><span class="brand-icon" aria-hidden="true">✣</span><span>SERVER FAN CONTROL<small>GPU & SYSTEM COOLING</small></span></a>
     <div class="topbar-right">
       {#if status?.mock}<span class="badge mock">MOCK HARDWARE</span>{/if}
       <span class="connection"><i class:online={authenticated && status?.available && !pollError}></i>{authenticated ? status?.available ? 'Controller online' : 'Controller unavailable' : 'Local hardware service'}</span>
@@ -260,6 +261,7 @@
           </aside>
         </div>
       {/if}
+      <SystemFans onunauthorized={handleError} />
       <footer><span>Server Fan Control <span class="muted">/ {status?.version || 'MVP'}</span></span><span class="muted">One controller. Explicit ownership.</span></footer>
     </main>
   {/if}

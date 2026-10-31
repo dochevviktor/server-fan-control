@@ -4,6 +4,10 @@ Prepared 29 October 2026. Target repository: https://github.com/dochevviktor/ser
 
 Naming updated 31 October 2026: this fork of [ZanMax/nvidia-fan-control](https://github.com/ZanMax/nvidia-fan-control) is now **Server Fan Control**, reflecting the planned IPMI system-fan and HDD-temperature scope. The reviewed snapshots and source permalinks below retain their historical repository names. This handover describes the original plan and baseline; consult the README for current implementation status.
 
+## Phase-3 implementation update — 31 October 2026
+
+Optional local IPMI monitoring and the `asrock-e3c246d2i` actuator are implemented with an independent worker, authenticated dashboard/API, fixed bounded subprocesses, read-modify-write/readback, explicit host verification settings, and ownership recovery. See the README's “Optional local IPMI and ASRock system fans” section for the deployment and acceptance contract. The owner's support commands are `raw 0x3a 0x02` and `raw 0x3a 0x01 00 00 35 00 00 00 00 00`; bare `35` is decimal. The board has three physical fan headers, while the OEM vector has eight bytes. Slot/header mapping, zero-as-automatic, percentage scaling, safe minimum and actual firmware response still require supervised target-host verification. No real IPMI write or TrueNAS deployment has been performed in this workspace. HDD-temperature control remains phase 4.
+
 ## 1. Objective and decisions
 
 Deliver a small, maintainable TrueNAS application in four product phases:
@@ -393,7 +397,7 @@ The first supported profile must match the owner's actual motherboard/server and
 A valid profile must establish automatic restoration before custom control is activated. Confirm whether a zone includes CPU, HBA, NIC or motherboard cooling. Where those components share the controlled zone, their thermal demand or verified conservative floor must be part of the policy.
 
 Phase-3 acceptance requires supervised proof that the intended physical fans respond, the floor is safe, automatic restoration works, and graceful stop/restart behave as documented. An abrupt-kill/reboot test needs a separately reviewed procedure on the owner's hardware. Do not enable an IPMI watchdog casually: its action may concern chassis power/reset rather than fan restoration.
-
+/home/agentic/Downloads/E3C246D2I\(01.64.00\)BMC.zip
 ## 7. Phase 4: direct SMART temperatures and the HDD curve
 
 ### Preferred provider

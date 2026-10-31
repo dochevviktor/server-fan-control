@@ -21,6 +21,7 @@ fi
     test ! -e /usr/local/cuda
     test ! -e /data/config.json
     test ! -e /src
+    command -v ipmitool >/dev/null
     for tool in go gcc cc nvcc node npm; do
         if command -v "$tool" >/dev/null 2>&1; then
             echo "Unexpected runtime tool: $tool" >&2
@@ -47,4 +48,11 @@ if [ "$status" -ne 1 ]; then
     exit 1
 fi
 printf '%s\n' "$output" | grep -q 'initialize NVML: ERROR_LIBRARY_NOT_FOUND'
+status=0
+output=$("$engine" run --rm --read-only --env NVIDIA_VISIBLE_DEVICES=void "$image" --diagnose-ipmi 2>&1) || status=$?
+printf '%s\n' "$output"
+if [ "$status" -ne 1 ]; then
+    echo "Expected --diagnose-ipmi to fail (exit 1) without a local IPMI device; got $status" >&2
+    exit 1
+fi
 echo 'No-GPU image checks passed. Target-host NVML control/reset still requires validation.'

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/dochevviktor/server-fan-control/internal/control"
 	"github.com/dochevviktor/server-fan-control/internal/gpu"
 	"github.com/dochevviktor/server-fan-control/internal/httpapi"
+	"github.com/dochevviktor/server-fan-control/internal/ipmi"
 	webassets "github.com/dochevviktor/server-fan-control/internal/web"
 )
 
@@ -36,9 +38,11 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	f.SetOutput(stderr)
 	configPath := f.String("config", "data/config.json", "persistent configuration path (legacy JSON migrates to a draft)")
 	diagnose := f.Bool("diagnose", false, "read GPU identity and temperature once without changing fan settings")
+	diagnoseIPMI := f.Bool("diagnose-ipmi", false, "read local BMC identity, fan RPM and supported profile bytes without fan writes")
+	enableIPMI := f.Bool("ipmi", false, "enable optional local IPMI monitoring and explicitly verified fan control")
 	listen := f.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	tokenFile := f.String("admin-token-file", "", "mounted admin secret file (at least 32 bytes)")
-	mock := f.Bool("mock", false, "use simulated GPUs; never accesses NVIDIA hardware")
+	mock := f.Bool("mock", false, "simulate GPU and enabled IPMI hardware; never accesses hardware")
 	noAuth := f.Bool("dev-no-auth", false, "disable login only for mock mode bound to a loopback IP")
 	publicOrigin := f.String("public-origin", "", "browser origin, e.g. https://fans.example.net, when using a reverse proxy")
 	secureCookies := f.Bool("secure-cookies", false, "require HTTPS for session cookies")
@@ -47,6 +51,16 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	}
 	if f.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %v", f.Args())
+	}
+	if *diagnoseIPMI {
+		if *diagnose || *mock {
+			return errors.New("--diagnose-ipmi cannot be combined with --diagnose or --mock")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		reading, err := ipmi.NewLocal().Read(ctx)
+		encodeErr := json.NewEncoder(stdout).Encode(reading)
+		return errors.Join(err, encodeErr)
 	}
 	if *diagnose {
 		if *mock {
@@ -66,6 +80,13 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	if *mock {
 		adapter = gpu.NewMock()
 	}
+	var bmc ipmi.Adapter = ipmi.NewLocal()
+	ipmiName := "ipmi.json"
+	if *mock {
+		bmc = ipmi.NewMock()
+		ipmiName = "ipmi.mock.json"
+	}
+	ipmiPath := filepath.Join(filepath.Dir(*configPath), ipmiName)
 	workerStarted := false
 	defer func() {
 		if runError == nil || workerStarted || errors.Is(runError, config.ErrLocked) {
@@ -78,6 +99,7 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 		if _, err := os.Stat(filepath.Join(filepath.Dir(*configPath), journal)); !errors.Is(err, os.ErrNotExist) {
 			runError = errors.Join(runError, control.RestorePending(adapter, *configPath))
 		}
+		runError = errors.Join(runError, ipmi.RestorePending(bmc, ipmiPath))
 	}()
 	token := ""
 	if !*noAuth {
@@ -107,11 +129,30 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	if err != nil {
 		return err
 	}
+	var systemFans *ipmi.Service
+	if *enableIPMI {
+		systemFans, err = ipmi.NewService(bmc, ipmiPath)
+		if err != nil {
+			return fmt.Errorf("open IPMI settings: %w", err)
+		}
+	} else {
+		// Removing the opt-in flag must still release previously owned fans.
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err = ipmi.RestorePendingLocked(recoveryCtx, bmc, ipmiPath)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("restore previous IPMI ownership: %w", err)
+		}
+	}
 	assets, err := webassets.Assets()
 	if err != nil {
 		return err
 	}
-	handler, err := httpapi.New(service, httpapi.Options{AdminToken: token, DevNoAuth: *noAuth, SecureCookies: *secureCookies, AllowedOrigin: *publicOrigin, Assets: assets})
+	options := httpapi.Options{AdminToken: token, DevNoAuth: *noAuth, SecureCookies: *secureCookies, AllowedOrigin: *publicOrigin, Assets: assets}
+	if systemFans != nil {
+		options.IPMI = systemFans
+	}
+	handler, err := httpapi.New(service, options)
 	if err != nil {
 		return err
 	}
@@ -126,16 +167,24 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	workerStarted = true
 	workerDone := make(chan error, 1)
 	go func() { workerDone <- service.Run(ctx) }()
+	var ipmiDone chan error
+	if systemFans != nil {
+		ipmiDone = make(chan error, 1)
+		go func() { ipmiDone <- systemFans.Run(ctx) }()
+	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	httpDone := make(chan error, 1)
 	go func() { httpDone <- server.Serve(listener) }()
 	log.Printf("listening on %s (mock=%t)", listener.Addr(), *mock)
 	var runErr error
 	workerFinished := false
+	ipmiFinished := systemFans == nil
 	select {
 	case <-ctx.Done():
 	case runErr = <-workerDone:
 		workerFinished = true
+	case runErr = <-ipmiDone:
+		ipmiFinished = true
 	case runErr = <-httpDone:
 		if errors.Is(runErr, http.ErrServerClosed) {
 			runErr = nil
@@ -156,6 +205,15 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 			// uninterruptible native worker might still be executing.
 			releaseStore = false
 			runErr = errors.Join(runErr, errors.New("controller shutdown timed out; fan restoration is unconfirmed; ownership journal retained"))
+		}
+	}
+	if !ipmiFinished {
+		select {
+		case err := <-ipmiDone:
+			runErr = errors.Join(runErr, err)
+		case <-deadline.Done():
+			releaseStore = false
+			runErr = errors.Join(runErr, errors.New("IPMI shutdown timed out; automatic restoration is unconfirmed; ownership journal retained"))
 		}
 	}
 	return errors.Join(runErr, shutdownErr)
