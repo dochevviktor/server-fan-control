@@ -6,15 +6,17 @@ services:
     read_only: true
     restart: unless-stopped
     stop_grace_period: 30s
-    command:
-      - --config
-      - /data/config.json
-      - --listen
-      - 0.0.0.0:8080
-      - --admin-token-file
-      - /run/secrets/admin-token
     environment:
       NVIDIA_DRIVER_CAPABILITIES: utility
+      FAN_CONTROL_CONFIG: "${FAN_CONTROL_CONFIG:-/data/config.json}"
+      FAN_CONTROL_LISTEN: "${FAN_CONTROL_LISTEN:-0.0.0.0:8080}"
+      FAN_CONTROL_ADMIN_TOKEN_FILE: "${FAN_CONTROL_ADMIN_TOKEN_FILE:-/run/secrets/admin-token}"
+      FAN_CONTROL_PUBLIC_ORIGIN: "${FAN_CONTROL_PUBLIC_ORIGIN:-}"
+      FAN_CONTROL_SECURE_COOKIES: "${FAN_CONTROL_SECURE_COOKIES:-false}"
+      FAN_CONTROL_MOCK: "${FAN_CONTROL_MOCK:-false}"
+      FAN_CONTROL_DEV_NO_AUTH: "${FAN_CONTROL_DEV_NO_AUTH:-false}"
+      FAN_CONTROL_DIAGNOSE: "${FAN_CONTROL_DIAGNOSE:-false}"
+      FAN_CONTROL_DIAGNOSE_IPMI: "${FAN_CONTROL_DIAGNOSE_IPMI:-false}"
       FAN_CONTROL_IPMI_ENABLED: "${FAN_CONTROL_IPMI_ENABLED:-false}"
       FAN_CONTROL_SMART_ENABLED: "${FAN_CONTROL_SMART_ENABLED:-false}"
     deploy:

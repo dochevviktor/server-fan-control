@@ -28,10 +28,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ipmitool smartm
 
 # The host NVIDIA Container Toolkit supplies NVML and the selected device nodes.
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
+ENV FAN_CONTROL_CONFIG=/data/config.json \
+    FAN_CONTROL_LISTEN=0.0.0.0:8080 \
+    FAN_CONTROL_ADMIN_TOKEN_FILE=/run/secrets/admin-token
 COPY --from=build /out/server-fan-control /usr/local/bin/server-fan-control
 COPY LICENSE /usr/share/doc/server-fan-control/LICENSE
 WORKDIR /data
 USER 0:0
 ENTRYPOINT ["/usr/local/bin/server-fan-control"]
 EXPOSE 8080
-CMD ["--config", "/data/config.json", "--listen", "0.0.0.0:8080", "--admin-token-file", "/run/secrets/admin-token"]
+CMD []

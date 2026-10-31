@@ -61,7 +61,9 @@ jobs:
         FAN_CONTROL_HDD_DEVICE: /dev/ci-hdd-placeholder
       run: |
         docker compose config --quiet
+        docker compose -f compose.yaml -f compose.ipmi.yaml config --quiet
         docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml config --quiet
+        env -u FAN_CONTROL_HDD_DEVICE docker compose -f compose.yaml -f compose.smart.truenas.yaml config --quiet
     - name: Export the tested runtime image
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: docker save server-fan-control:local | gzip > "$RUNNER_TEMP/runtime-image.tar.gz"

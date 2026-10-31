@@ -63,12 +63,27 @@ docker compose up -d
 
 The default image is `server-fan-control:local`; `FAN_CONTROL_IMAGE` can select an image you have published. Compose uses a root process, a read-only root filesystem, a writable **directory** mounted at `/data`, and a read-only secret file. The data directory must remain writable for atomic configuration updates and the recovery journal. No configuration or secrets are baked into the image. Logs go to stdout/stderr.
 
-HTTP is published only on `127.0.0.1:8080` by default. For remote access, use an HTTPS reverse proxy on the chosen management network and add these command arguments in Compose:
+All startup options have environment-variable equivalents. Compose and the image defaults use these directly, so a TrueNAS Custom App needs no command arguments. Explicit CLI flags override their environment variables. Unset or empty values received by the process use native defaults; the image and Compose supply the container defaults shown below. Empty host or `.env` values also select Compose's container defaults. Invalid boolean settings fail service startup.
 
-```yaml
-- --public-origin
-- https://fans.example.net
-- --secure-cookies
+| Environment variable | CLI equivalent | Native default | Container/Compose default |
+| --- | --- | --- | --- |
+| `FAN_CONTROL_CONFIG` | `--config` | `data/config.json` | `/data/config.json` |
+| `FAN_CONTROL_LISTEN` | `--listen` | `127.0.0.1:8080` | `0.0.0.0:8080` |
+| `FAN_CONTROL_ADMIN_TOKEN_FILE` | `--admin-token-file` | Required unless using development auth bypass | `/run/secrets/admin-token` |
+| `FAN_CONTROL_PUBLIC_ORIGIN` | `--public-origin` | Empty | Empty |
+| `FAN_CONTROL_SECURE_COOKIES` | `--secure-cookies` | `false` | `false` |
+| `FAN_CONTROL_MOCK` | `--mock` | `false` | `false` |
+| `FAN_CONTROL_DEV_NO_AUTH` | `--dev-no-auth` | `false` | `false` |
+| `FAN_CONTROL_DIAGNOSE` | `--diagnose` | `false` | `false` |
+| `FAN_CONTROL_DIAGNOSE_IPMI` | `--diagnose-ipmi` | `false` | `false` |
+
+`FAN_CONTROL_CONFIG` and `FAN_CONTROL_ADMIN_TOKEN_FILE` refer to paths **inside the container**. The existing `FAN_CONTROL_CONFIG_DIR` and `FAN_CONTROL_TOKEN_FILE` select the host mount sources; they are Compose settings, not application options. If you change a container path or listen port, adjust its mount or port mapping too. `FAN_CONTROL_DEV_NO_AUTH=true` still requires mock mode and a literal loopback listen IP. Diagnostic modes read once and exit, and cannot be combined with mock mode or each other. IPMI and SMART retain their existing environment variables described below.
+
+HTTP is published only on `127.0.0.1:8080` by default. For remote access, use an HTTPS reverse proxy on the chosen management network and set these variables in the Compose `.env` file or the TrueNAS app's environment settings:
+
+```dotenv
+FAN_CONTROL_PUBLIC_ORIGIN=https://fans.example.net
+FAN_CONTROL_SECURE_COOKIES=true
 ```
 
 Use the actual browser origin, without a path. Forwarded headers are deliberately not trusted to determine it. Keep the backend loopback/private, configure the proxy to forward the browser's Origin header unchanged, and terminate TLS at the proxy. The application listens on all container interfaces; host publication is a separate setting.
@@ -87,7 +102,7 @@ This command initializes NVML, reads UUID/name/temperature, shuts down NVML and 
 
 ## Configuration, activation and recovery
 
-The default native config path is `data/config.json`; `--config` accepts an explicit path. A missing configuration creates schema version 1 with a named example curve and **no managed GPUs**. Example values are editable drafts, not hardware-certified thresholds.
+The default native config path is `data/config.json`; `FAN_CONTROL_CONFIG` or `--config` accepts an explicit path. A missing configuration creates schema version 1 with a named example curve and **no managed GPUs**. Example values are editable drafts, not hardware-certified thresholds.
 
 The JSON contains `schema_version`, `revision`, `sampling_seconds`, `freshness_seconds`, `failure_limit`, named `curves`, and UUID-keyed `gpus` policies. A policy selects `automatic` or `curve`, a curve name, fan indices (empty means all discovered fans), minimum duty, critical temperature, downward hysteresis and cooling hold. `limits_confirmed` records the owner's explicit confirmation of the hardware limits; it is not a hardware certification.
 
@@ -121,7 +136,7 @@ Enable local IPMI independently of the GPU loop:
 docker compose -f compose.yaml -f compose.ipmi.yaml up -d
 ```
 
-The override sets `FAN_CONTROL_IPMI_ENABLED=true` and maps only `/dev/ipmi0`. It inherits the base command, including any reverse-proxy arguments you configure there. The host must already have a working OpenIPMI device; no host drivers are installed by this app. The runtime includes `ipmitool`, invokes it with `-I open`, and needs no BMC network credentials. Native users can install `ipmitool` and set `FAN_CONTROL_IPMI_ENABLED=true` before launching the service. Missing IPMI hardware is reported as unavailable; it never becomes simulated data. Setting that variable with `--mock` simulates both adapters without accessing hardware.
+The override sets `FAN_CONTROL_IPMI_ENABLED=true` and maps only `/dev/ipmi0`. It inherits the base environment, including authentication and reverse-proxy settings. The host must already have a working OpenIPMI device; no host drivers are installed by this app. The runtime includes `ipmitool`, invokes it with `-I open`, and needs no BMC network credentials. Native users can install `ipmitool` and set `FAN_CONTROL_IPMI_ENABLED=true` before launching the service. Missing IPMI hardware is reported as unavailable; it never becomes simulated data. Setting that variable with `FAN_CONTROL_MOCK=true` simulates both adapters without accessing hardware.
 
 For a **TrueNAS Custom App**, add these entries under **Environment Variables** as needed:
 
@@ -130,7 +145,7 @@ For a **TrueNAS Custom App**, add these entries under **Environment Variables** 
 | `FAN_CONTROL_IPMI_ENABLED` | `true` | `false` |
 | `FAN_CONTROL_SMART_ENABLED` | `true` | `false` |
 
-Unset or empty values disable the integration; invalid boolean values fail startup. SMART requires IPMI to be enabled. These variables are read at process startup, so save the app settings and recreate/restart the container to apply changes. They do not replace device mappings: IPMI still needs `/dev/ipmi0`, and SMART needs each selected HDD exposed individually. Enabling either integration starts monitoring; fan takeover still requires the saved hardware verification and an explicit apply. The base Compose file defaults both variables to `false`; its optional overrides enable the corresponding integrations.
+Unset or empty values disable the integration; invalid boolean values fail startup. SMART requires IPMI to be enabled. These variables are read at process startup, so save the app settings and recreate/restart the container to apply changes. Device access is also required: expose `/dev/ipmi0` and the selected HDDs individually, or use the TrueNAS-style host-device setup below. Enabling either integration starts monitoring; fan takeover still requires the saved hardware verification and an explicit apply. The base Compose file defaults both variables to `false`; its optional overrides enable the corresponding integrations.
 
 Start with the read-only diagnostic, which needs neither a configuration nor an admin token:
 
@@ -179,16 +194,31 @@ Set `FAN_CONTROL_SMART_ENABLED=true` alongside `FAN_CONTROL_IPMI_ENABLED=true` t
 
 The initial provider accepts verified **ATA and SAT** paths only. It invokes fixed arguments `smartctl -j -i -A -n standby,3,5 -d TYPE DEVICE`, reads normalized `temperature.current`, and requires a rotating disk and the configured serial on each successful read. It never scans/autodetects devices, runs self-tests, changes SMART settings or standby timers, or writes firmware. SCSI/SAS, RAID selectors and NVMe are not supported in this increment. Fixture tests are synthetic; real drive/controller captures and standby behavior still need target-host validation. See the [packaged smartctl manual](https://manpages.debian.org/trixie/smartmontools/smartctl.8.en.html) for exit bitmasks and transport-specific power checks.
 
-Configure the HDD group in the dashboard using an explicit ID, expected serial, container device path and `ata` or `sat` transport. A new or replacement disk never joins automatically. Only map selected devices; a by-id symlink without its target is insufficient. [compose.smart.yaml](compose.smart.yaml) is a one-drive template, combined with both existing Compose files:
+Configure the HDD group in the dashboard using an explicit ID, expected serial, container device path and `ata` or `sat` transport. A new or replacement disk never joins automatically. Choose one of these container access setups; both enable IPMI and SMART and preserve the base environment, authentication, GPU reservation and persistent storage.
+
+**TrueNAS-style setup, without per-disk mappings.** [compose.smart.truenas.yaml](compose.smart.truenas.yaml) follows the [TrueNAS Scrutiny app template](https://github.com/truenas/apps/blob/master/ix-dev/community/scrutiny/templates/docker-compose.yaml): run as root in privileged mode, bind-mount host `/dev` and `/run/udev` read-only. Use it directly with the base file:
 
 ```bash
-# Resolve and verify the selected disk on the host before setting this variable.
-export FAN_CONTROL_HDD_DEVICE=/dev/REPLACE_WITH_VERIFIED_DEVICE
-# Review the expanded configuration before deployment.
-docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml config
+docker compose -f compose.yaml -f compose.smart.truenas.yaml config
+docker compose -f compose.yaml -f compose.smart.truenas.yaml up -d
 ```
 
-The template enables both integrations through environment variables and exposes the chosen device as `/dev/hdd-selected`; enter that path and its independently verified serial in the UI. Both overrides inherit the base command, preserving its authentication and reverse-proxy settings. Add other selected devices individually. Device access and any required capability, such as SYS_RAWIO, depend on transport and must be tested; the template grants neither privileged mode nor broad device access. A read-only mapping alone does not constrain all disk IOCTLs. Coordinate host validation with TrueNAS monitoring, including confirmation that repeated standby checks do not wake disks or alter intended sleep behavior.
+No `FAN_CONTROL_HDD_DEVICE` variable or separate IPMI override is needed. In the dashboard, use the host path (prefer `/dev/disk/by-id/ata-...`), expected serial and transport for each selected HDD. Host `/dev/ipmi0` is available through the same mount and must already work on the host. When moving from the per-disk setup, update `/dev/hdd-selected` to the corresponding host path in the saved HDD settings. For a TrueNAS Custom App configured through the UI, set user/group to `0:0`, enable **Privileged**, add read-only host-path mounts `/dev` → `/dev` and `/run/udev` → `/run/udev`, and set both integration environment variables to `true`.
+
+Privileged mode gives this container access to all host devices, including GPUs beyond the reserved UUID; a read-only `/dev` mount does not prevent device IOCTLs. The application still reads only the configured HDDs and verifies their serials. Device visibility does not activate a fan curve.
+
+**Selected-device setup.** [compose.smart.yaml](compose.smart.yaml) follows [Scrutiny's Docker setup](https://github.com/AnalogJ/scrutiny#docker): `SYS_RAWIO`, read-only `/run/udev` metadata and explicit disk mappings. Combine it with the IPMI override:
+
+```bash
+# Use a host device path or /dev/disk/by-id path after checking the disk's serial.
+export FAN_CONTROL_HDD_DEVICE=/dev/REPLACE_WITH_VERIFIED_DEVICE
+docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml config
+docker compose -f compose.yaml -f compose.ipmi.yaml -f compose.smart.yaml up -d
+```
+
+The chosen device is exposed as `/dev/hdd-selected`; enter that path and its verified serial in the dashboard. Add other drives to `devices`, for example `/dev/sdb:/dev/sdb:rw`. Docker resolves a by-id path used as a device mapping source; mounting only the `/dev/disk/by-id` directory does not expose its device targets. This setup supplies `SYS_RAWIO` for SMART queries without privileged mode. Scrutiny also documents `SYS_ADMIN` for NVMe, but this collector supports ATA/SAT HDDs only, so that capability is unnecessary here. `/run/udev` supplies host device metadata; the current collector reads explicitly configured paths rather than using Scrutiny's discovery.
+
+With either setup, confirm on the target host that SMART identity, temperature and standby checks work and that repeated reads preserve the intended sleep behavior.
 
 Save the disk selection and curve as a draft first. The dashboard shows per-drive status, completed/last-valid times, SMART health reasons, mean, maximum, coverage, target and override reason. The API also exposes attempt timestamps and numeric health flags. Last-known values remain labeled with their original timestamps after errors or standby; they are not fresh readings. Collection completion timestamps do not establish the disk firmware sensor's internal sample time. Health exit bits are reported separately from transport failures.
 

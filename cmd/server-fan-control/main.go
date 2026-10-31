@@ -67,7 +67,11 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	f.Usage = func() {
 		fmt.Fprintf(f.Output(), "Usage of %s:\n", f.Name())
 		f.PrintDefaults()
-		fmt.Fprintln(f.Output(), "\nEnvironment variables (unset or empty defaults to false):")
+		fmt.Fprintln(f.Output(), "\nEnvironment variables (explicit flags override environment; unset or empty uses the default):")
+		f.VisitAll(func(option *flag.Flag) {
+			fmt.Fprintf(f.Output(), "  %s (default %q; --%s)\n", flagEnvironmentName(option.Name), option.DefValue, option.Name)
+		})
+		fmt.Fprintln(f.Output(), "\nIntegration environment variables (unset or empty defaults to false):")
 		fmt.Fprintf(f.Output(), "  %s=true\n    enable local IPMI monitoring and verified fan control\n", ipmiEnabledEnv)
 		fmt.Fprintf(f.Output(), "  %s=true\n    enable selected HDD SMART collection (requires %s=true)\n", smartEnabledEnv, ipmiEnabledEnv)
 	}
@@ -76,6 +80,11 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	}
 	if f.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %v", f.Args())
+	}
+	// Resolve the hardware mode before attempting diagnostics or recovery. An
+	// invalid mode must not accidentally select real hardware instead of a mock.
+	if err := applyFlagEnvironment(f, "config", "listen", "admin-token-file", "public-origin", "mock", "diagnose", "diagnose-ipmi"); err != nil {
+		return err
 	}
 	if *diagnoseIPMI {
 		if *diagnose || *mock {
@@ -92,14 +101,6 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 			return errors.New("--diagnose uses real NVML; use --mock with the HTTP service instead")
 		}
 		return runDiagnostic(library, stdout)
-	}
-	host, _, err := net.SplitHostPort(*listen)
-	if err != nil {
-		return fmt.Errorf("invalid listen address: %w", err)
-	}
-	ip := net.ParseIP(host)
-	if *noAuth && (!*mock || ip == nil || !ip.IsLoopback()) {
-		return errors.New("--dev-no-auth requires --mock and a loopback IP listen address")
 	}
 	var adapter gpu.Adapter = gpu.NewNVML()
 	if *mock {
@@ -128,6 +129,17 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	}()
 	// Validate after installing startup recovery: a malformed environment value
 	// must not prevent restoration of previously owned fans.
+	if err := applyFlagEnvironment(f, "dev-no-auth", "secure-cookies"); err != nil {
+		return err
+	}
+	host, _, err := net.SplitHostPort(*listen)
+	if err != nil {
+		return fmt.Errorf("invalid listen address (--listen / FAN_CONTROL_LISTEN): %w", err)
+	}
+	ip := net.ParseIP(host)
+	if *noAuth && (!*mock || ip == nil || !ip.IsLoopback()) {
+		return errors.New("--dev-no-auth / FAN_CONTROL_DEV_NO_AUTH requires --mock / FAN_CONTROL_MOCK and a loopback IP listen address")
+	}
 	enableIPMI, err := environmentBool(ipmiEnabledEnv)
 	if err != nil {
 		return err
@@ -142,7 +154,7 @@ func runCLI(args []string, stdout, stderr io.Writer, library diagnosticNVML) (ru
 	token := ""
 	if !*noAuth {
 		if *tokenFile == "" {
-			return errors.New("--admin-token-file is required (local simulation can use --mock --dev-no-auth)")
+			return errors.New("--admin-token-file or FAN_CONTROL_ADMIN_TOKEN_FILE is required (local simulation can use --mock --dev-no-auth)")
 		}
 		data, err := os.ReadFile(*tokenFile)
 		if err != nil {

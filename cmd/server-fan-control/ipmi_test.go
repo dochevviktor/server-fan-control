@@ -12,7 +12,7 @@ import (
 )
 
 func TestStartupFailureRecoversIPMIEvenWhenDisabled(t *testing.T) {
-	for _, cause := range []string{"missing token", "invalid GPU config", "invalid IPMI config", "invalid IPMI environment", "invalid SMART environment"} {
+	for _, cause := range []string{"missing token", "invalid GPU config", "invalid IPMI config", "invalid IPMI environment", "invalid SMART environment", "invalid cookies environment", "invalid auth environment", "invalid listen"} {
 		t.Run(cause, func(t *testing.T) {
 			t.Setenv(ipmiEnabledEnv, "false")
 			t.Setenv(smartEnabledEnv, "false")
@@ -40,6 +40,12 @@ func TestStartupFailureRecoversIPMIEvenWhenDisabled(t *testing.T) {
 				t.Setenv(ipmiEnabledEnv, "invalid")
 			case "invalid SMART environment":
 				t.Setenv(smartEnabledEnv, "invalid")
+			case "invalid cookies environment":
+				t.Setenv("FAN_CONTROL_SECURE_COOKIES", "invalid")
+			case "invalid auth environment":
+				t.Setenv("FAN_CONTROL_DEV_NO_AUTH", "invalid")
+			case "invalid listen":
+				t.Setenv("FAN_CONTROL_LISTEN", "invalid")
 			}
 			err := runCLI(args, io.Discard, io.Discard, &fakeDiagnosticNVML{})
 			if err == nil {

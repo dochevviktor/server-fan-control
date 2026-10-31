@@ -1,0 +1,26 @@
+# TrueNAS Scrutiny-style access to host devices without per-disk mappings.
+# Use INSTEAD OF compose.ipmi.yaml and compose.smart.yaml:
+# docker compose -f compose.yaml -f compose.smart.truenas.yaml up -d
+# https://github.com/truenas/apps/blob/master/ix-dev/community/scrutiny/templates/docker-compose.yaml
+# Privileged mode grants broad host-device access; /dev:ro does not block device IOCTLs.
+services:
+  fan-control:
+    privileged: true
+    environment:
+      FAN_CONTROL_IPMI_ENABLED: "true"
+      FAN_CONTROL_SMART_ENABLED: "true"
+    volumes:
+      - type: bind
+        source: /dev
+        target: /dev
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/udev
+        target: /run/udev
+        read_only: true
+        bind:
+          create_host_path: false
+    # Host paths (including /dev/disk/by-id and /dev/ipmi0) are available unchanged.
+    # Select HDDs and their expected serials in the dashboard; no automatic enrollment.

@@ -1,12 +1,22 @@
-# Template only: replace the selected resolved device paths after checking serials
-# and transport on the host. Combine with compose.yaml and compose.ipmi.yaml.
-# A /dev/disk/by-id symlink alone does not grant access to its target.
+# Scrutiny-style selected-device access. Combine with compose.yaml and compose.ipmi.yaml.
+# Set FAN_CONTROL_HDD_DEVICE to the selected host device after checking its serial.
+# https://github.com/AnalogJ/scrutiny#docker
+# A /dev/disk/by-id path can be used as the source of the device mapping.
 services:
   fan-control:
     environment:
       FAN_CONTROL_IPMI_ENABLED: "true"
       FAN_CONTROL_SMART_ENABLED: "true"
+    cap_add:
+      - SYS_RAWIO
+    volumes:
+      - type: bind
+        source: /run/udev
+        target: /run/udev
+        read_only: true
+        bind:
+          create_host_path: false
     devices:
-      - "${FAN_CONTROL_HDD_DEVICE:?Set the resolved device for the selected HDD}:/dev/hdd-selected:rw"
-    # Add other selected drives individually. Validate access/capabilities for
-    # your transport; do not grant privileged mode or map the entire /dev tree.
+      - "${FAN_CONTROL_HDD_DEVICE:?Set the host device path for the selected HDD}:/dev/hdd-selected:rw"
+    # Add other selected drives here, e.g. /dev/sdb:/dev/sdb:rw.
+    # ATA/SAT HDDs only; the collector does not support NVMe (no SYS_ADMIN needed).

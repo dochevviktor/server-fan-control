@@ -35,10 +35,11 @@ with tempfile.TemporaryDirectory(prefix='fan-control-smoke-') as temporary:
     def launch():
         command('run', '-d', '--name', name, '--read-only',
                 '--env', 'FAN_CONTROL_IPMI_ENABLED=true', '--env', 'FAN_CONTROL_SMART_ENABLED=true',
+                '--env', 'FAN_CONTROL_MOCK=true',
+                '--env', 'FAN_CONTROL_CONFIG=/data/smoke-config.json',
+                '--env', 'FAN_CONTROL_ADMIN_TOKEN_FILE=/run/secrets/smoke-token',
                 '-p', '127.0.0.1::8080', '-v', f'{data}:/data:Z',
-                '-v', f'{secret}:/run/secrets/admin-token:ro,Z', image,
-                '--mock', '--listen', '0.0.0.0:8080', '--config', '/data/config.json',
-                '--admin-token-file', '/run/secrets/admin-token')
+                '-v', f'{secret}:/run/secrets/smoke-token:ro,Z', image)
         port = command('port', name, '8080/tcp').rsplit(':', 1)[1]
         base = f'http://127.0.0.1:{port}'
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
