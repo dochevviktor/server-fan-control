@@ -169,4 +169,7 @@ The script enforces the 150 MiB unpacked budget, excludes runtime compilers/CUDA
 
 ## License
 
-[MIT](LICENSE), copyright 2025 Max Zanoga.
+Server Fan Control is licensed under the [MIT License](LICENSE).
+
+- Copyright (c) 2025 Max Zanoga — original upstream work.
+- Copyright (c) 2026 Viktor Dochev — additions and modifications.

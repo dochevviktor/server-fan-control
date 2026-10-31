@@ -45,7 +45,7 @@ Start phase 1 and the hardware-independent work in phase 2 immediately. Missing 
 | NVIDIA/go-nvml, existing dependency v0.12.4-1 | 8a7f6b796317a8c7cd5347a25be164108967e7b4 | Tag inspected |
 | NVIDIA/go-nvml, inspected release v0.13.4-1 | 1a1e86da474d340d7cf58274588f4a4afc8772e7 | Tag inspected |
 
-Refresh the target branch before implementation and reconcile any newer changes. Preserve the MIT license and Max Zanoga attribution. The reviewed fork snapshot's module path named github.com/ZanMax/nvidia-fan-control. The current project uses github.com/dochevviktor/server-fan-control consistently for its module and package imports.
+Refresh the target branch before implementation and reconcile any newer changes. Preserve the MIT license and both copyright notices: `Copyright (c) 2025 Max Zanoga` for the original upstream work and `Copyright (c) 2026 Viktor Dochev` for his additions and modifications. The reviewed fork snapshot's module path named github.com/ZanMax/nvidia-fan-control. The current project uses github.com/dochevviktor/server-fan-control consistently for its module and package imports.
 
 The fork has one Go source file, a JSON configuration, Dockerfile and a build-only GitHub Actions workflow. It has no Compose definition, API, UI or tests. Its README describes native systemd deployment. [R1–R5]
 
